@@ -46,14 +46,17 @@ def install_apt_source(src, gpg):
     src_updated = update_apt_src(src, src_d)
     return gpg_updated or src_updated
 
+def check_run_cmd(cmd):
+    print(cmd)
+    sp.run(cmd).check_returncode()
+
 if __name__ == '__main__':
     src_updated = install_apt_source(Path('vscode.list'), Path('packages.microsoft.gpg'))
     if src_updated:
         cmd = [
             'sudo', 'apt-get', 'update',
         ]
-        print(cmd)
-        sp.run(cmd).check_returncode()
+        check_run_cmd(cmd)
     pkgs = [
         'htop',
         'konsole',
@@ -75,8 +78,11 @@ if __name__ == '__main__':
         'gnome-control-center',
         'xfce4-notes', 'xfce4-notes-plugin', 'xfce4-systemload-plugin', 'xfce4-netload-plugin', 'xfce4-goodies', 'xfce4-cpugraph-plugin',
         'net-tools',
+        'fcitx', 'fcitx-googlepinyin', 'fcitx-ui-qimpanel',
+        'fcitx5', 'fcitx5-pinyin', 'fcitx5-chinese-addons',
     ]
     cmd = ['sudo', 'apt-get', 'install', '-y'] + pkgs
-    print(cmd)
-    sp.run(cmd).check_returncode()
-
+    check_run_cmd(cmd)
+    cmd = ['sudo', 'systemctl', 'disable']
+    for x in ['apt-daily-upgrade.timer', 'apt-daily.timer']:
+        check_run_cmd(cmd + [x])
