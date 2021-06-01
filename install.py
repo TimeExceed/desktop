@@ -75,10 +75,9 @@ if __name__ == '__main__':
         'tmux',
         'flameshot',
         'vulkan-tools',
-        'gnome-control-center',
+        'gnome-control-center', 'gnome-system-tools',
         'xfce4-notes', 'xfce4-notes-plugin', 'xfce4-systemload-plugin', 'xfce4-netload-plugin', 'xfce4-goodies', 'xfce4-cpugraph-plugin',
         'net-tools',
-        'fcitx', 'fcitx-googlepinyin', 'fcitx-ui-qimpanel',
         'fcitx5', 'fcitx5-pinyin', 'fcitx5-chinese-addons',
     ]
     cmd = ['sudo', 'apt-get', 'install', '-y'] + pkgs
