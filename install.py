@@ -2,6 +2,7 @@
 import subprocess as sp
 from pathlib import Path
 import hashlib
+from collections import deque
 
 def digest(fn):
     m = hashlib.sha256()
@@ -35,8 +36,7 @@ def update_apt_src(src, des_d):
             cmd = [
                 'sudo', 'rm', '-f', '%s' % des_d.joinpath(src.name),
             ]
-            print(cmd)
-            sp.run(cmd).check_returncode()
+            check_run_cmd(cmd)
     return should_update
 
 def install_apt_source(src, gpg):
@@ -50,13 +50,7 @@ def check_run_cmd(cmd):
     print(cmd)
     sp.run(cmd).check_returncode()
 
-if __name__ == '__main__':
-    src_updated = install_apt_source(Path('vscode.list'), Path('packages.microsoft.gpg'))
-    if src_updated:
-        cmd = [
-            'sudo', 'apt-get', 'update',
-        ]
-        check_run_cmd(cmd)
+def install_pkgs():
     pkgs = [
         'htop',
         'konsole',
@@ -82,6 +76,50 @@ if __name__ == '__main__':
     ]
     cmd = ['sudo', 'apt-get', 'install', '-y'] + pkgs
     check_run_cmd(cmd)
-    cmd = ['sudo', 'systemctl', 'disable']
-    for x in ['apt-daily-upgrade.timer', 'apt-daily.timer']:
-        check_run_cmd(cmd + [x])
+
+def disable_sysctl_units():
+    units = ['apt-daily-upgrade.timer', 'apt-daily.timer']
+    for x in units:
+        check_run_cmd(['sudo', 'systemctl', 'disable'] + [x])
+
+def walk_files(root):
+    q = deque([root])
+    while len(q) > 0:
+        d = q.popleft()
+        for x in d.iterdir():
+            if x.is_dir():
+                q.append(x)
+            elif x.is_file():
+                yield x.relative_to(root)
+
+def prepare_home():
+    home = Path.home()
+    src_rt = Path('home.cfg')
+    install = ['install', '-m', '644']
+    for x in walk_files(src_rt):
+        src = src_rt.joinpath(x)
+        dst = home.joinpath(x)
+        cmd = install + [str(src.resolve()), str(dst.resolve())]
+        check_run_cmd(cmd)
+
+def prepare_etc():
+    etc = Path('/etc')
+    src_rt = Path('etc')
+    install = ['sudo', 'install', '-o', 'root', '-g', 'root', '-m', '644']
+    for x in walk_files(src_rt):
+        src = src_rt.joinpath(x)
+        dst = etc.joinpath(x)
+        cmd = install + [str(src.resolve()), str(dst.resolve())]
+        check_run_cmd(cmd)
+
+if __name__ == '__main__':
+    src_updated = install_apt_source(Path('vscode.list'), Path('packages.microsoft.gpg'))
+    if src_updated:
+        cmd = [
+            'sudo', 'apt-get', 'update',
+        ]
+        check_run_cmd(cmd)
+    install_pkgs()
+    disable_sysctl_units()
+    prepare_home()
+    prepare_etc()

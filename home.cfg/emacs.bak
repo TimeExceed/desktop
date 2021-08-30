@@ -1,0 +1,97 @@
+(require 'package) 
+(add-to-list 'package-archives
+             '("melpa" . "https://melpa.org/packages/"))
+(package-initialize) 
+
+(global-linum-mode t)
+(setq make-backup-files nil)
+(setq indent-tabs-mode nil) ; use spaces only
+
+(defun smart-beginning-of-line ()
+  "Move point to first non-whitespace character or beginning-of-line.
+
+Move point to the first non-whitespace character on this line.
+If point was already at that position, move point to beginning of line."
+  (interactive) ; Use (interactive "^") in Emacs 23 to make shift-select work
+  (let ((oldpos (point)))
+    (back-to-indentation)
+    (and (= oldpos (point))
+         (beginning-of-line))))
+
+(defun smart-forward ()
+  (interactive)
+  (let ((identifier? (looking-at "[a-zA-Z0-9_]")))
+    (forward-char)
+    (if identifier?
+      (while (looking-at "[a-zA-Z0-9_]")
+	(forward-char))
+      (while (not (looking-at "[a-zA-Z0-9_]"))
+	(forward-char)))))
+
+(defun smart-backward ()
+  (interactive)
+  (let ((identifier? (looking-back "[a-zA-Z0-9_]")))
+    (backward-char)
+    (if identifier?
+      (while (looking-back "[a-zA-Z0-9_]")
+	(backward-char))
+      (while (not (looking-back "[a-zA-Z0-9_]"))
+	(backward-char)))))
+
+(global-set-key [home] 'smart-beginning-of-line)
+(global-set-key "\C-o" 'find-file)
+(global-set-key "\C-s" 'save-buffer)
+(global-set-key "\C-f" 'isearch-forward-regexp)
+(global-set-key "\C-d" 'kill-whole-line)
+(global-set-key "\C-l" 'goto-line)
+(global-set-key (kbd "C-<right>") 'smart-forward)
+(global-set-key (kbd "C-<left>") 'smart-backward)
+(define-key ctl-x-map "2" 'split-window-horizontally)
+(define-key isearch-mode-map "\C-f" 'isearch-repeat-forward)
+
+(custom-set-variables
+ ;; custom-set-variables was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(ansi-color-faces-vector
+   [default bold shadow italic underline bold bold-italic bold])
+ '(clojure-indent-style :align-arguments)
+ '(column-number-mode t)
+ '(cua-mode t nil (cua-base))
+ '(current-language-environment "UTF-8")
+ '(custom-enabled-themes '(atom-one-dark))
+ '(custom-safe-themes
+   '("171d1ae90e46978eb9c342be6658d937a83aaa45997b1d7af7657546cae5985b" default))
+ '(grep-files-aliases
+   '(("all" . "* .*")
+     ("el" . "*.el")
+     ("l" . "[Cc]hange[Ll]og*")
+     ("m" . "[Mm]akefile*")
+     ("tex" . "*.tex")
+     ("texi" . "*.texi")
+     ("asm" . "*.[sS]")
+     ("cc" . "*.h *.c *.cpp *.hpp *.ipp")))
+ '(grep-find-ignored-directories '(".svn" ".git"))
+ '(indent-tabs-mode nil)
+ '(inhibit-startup-screen t)
+ '(package-selected-packages '(rust-mode atom-one-dark-theme))
+ '(save-place t nil (saveplace))
+ '(show-paren-mode t))
+(custom-set-faces
+ ;; custom-set-faces was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(default ((t (:inherit nil :stipple nil :background "#282C34" :foreground "#ABB2BF" :inverse-video nil :box nil :strike-through nil :overline nil :underline nil :slant normal :weight normal :height 144 :width normal :foundry "unknown" :family "Inconsolata"))))
+ '(fixed-pitch ((t (:height 144 :family "Inconsolata"))))
+ '(font-lock-builtin-face ((t (:foreground "#56B6C2" :height 144 :family "Inconsolata"))))
+ '(font-lock-comment-face ((t (:foreground "#5C6370" :height 144 :family "Inconsolata"))))
+ '(font-lock-constant-face ((t (:foreground "#D19A66" :height 144 :family "Inconsolata"))))
+ '(font-lock-function-name-face ((t (:foreground "#61AFEF" :height 144 :family "Inconsolata"))))
+ '(font-lock-keyword-face ((t (:foreground "#C678DD" :height 144 :family "Inconsolata"))))
+ '(font-lock-preprocessor-face ((t (:foreground "#828997" :height 144 :family "Inconsolata"))))
+ '(font-lock-string-face ((t (:foreground "#98C379" :height 144 :family "Inconsolata"))))
+ '(font-lock-type-face ((t (:foreground "#E5C07B" :height 144 :family "Inconsolata"))))
+ '(font-lock-variable-name-face ((t (:foreground "#E06C75" :height 144 :family "Inconsolata"))))
+ '(highlight ((t (:background "#3E4451" :height 144 :family "Inconsolata")))))
