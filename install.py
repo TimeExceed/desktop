@@ -99,6 +99,7 @@ def prepare_home():
     for x in walk_files(src_rt):
         src = src_rt.joinpath(x)
         dst = home.joinpath(x)
+        dst.parent.mkdir(parents=True, exist_ok=True)
         cmd = install + [str(src.resolve()), str(dst.resolve())]
         check_run_cmd(cmd)
 
@@ -109,6 +110,7 @@ def prepare_etc():
     for x in walk_files(src_rt):
         src = src_rt.joinpath(x)
         dst = etc.joinpath(x)
+        dst.parent.mkdir(parents=True, exist_ok=True)
         cmd = install + [str(src.resolve()), str(dst.resolve())]
         check_run_cmd(cmd)
 
