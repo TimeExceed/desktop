@@ -56,7 +56,6 @@ If point was already at that position, move point to beginning of line."
  ;; If there is more than one, they won't work right.
  '(ansi-color-faces-vector
    [default bold shadow italic underline bold bold-italic bold])
- '(clojure-indent-style :align-arguments)
  '(column-number-mode t)
  '(cua-mode t nil (cua-base))
  '(current-language-environment "UTF-8")
@@ -75,7 +74,7 @@ If point was already at that position, move point to beginning of line."
  '(grep-find-ignored-directories '(".svn" ".git"))
  '(indent-tabs-mode nil)
  '(inhibit-startup-screen t)
- '(package-selected-packages '(rust-mode atom-one-dark-theme))
+ '(package-selected-packages '(atom-one-dark-theme))
  '(save-place t nil (saveplace))
  '(show-paren-mode t))
 (custom-set-faces
