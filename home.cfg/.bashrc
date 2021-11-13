@@ -116,6 +116,11 @@ if ! shopt -oq posix; then
   fi
 fi
 
-. "$HOME/.cargo/env"
 export EDITOR=emacs
 alias e=emacs
+export RUSTUP_HOME=/media/data/local/rustup
+export CARGO_HOME=/media/data/local/cargo
+export RUSTUP_DIST_SERVER="https://rsproxy.cn"
+export RUSTUP_UPDATE_ROOT="https://rsproxy.cn/rustup"
+. "$CARGO_HOME/env"
+
