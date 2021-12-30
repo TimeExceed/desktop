@@ -57,7 +57,7 @@ def install_pkgs():
         'fonts-inconsolata',
         'kdiff3',
         'code',
-        'git-gui', 'gitk',
+        'git-gui', 'gitk', 'git-lfs',
         'docker.io',
         'exa',
         'python3-pip',
