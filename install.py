@@ -26,7 +26,7 @@ def update_apt_src(src, des_d):
     if should_update:
         if src.exists():
             cmd = [
-                'sudo', 'install', '-o', 'root', '-g', 'root', '-m', '644', 
+                'sudo', 'install', '-o', 'root', '-g', 'root', '-m', '644',
                 '%s' % src,
                 '%s' % des_d,
             ]
@@ -56,6 +56,7 @@ def install_pkgs():
         'konsole',
         'fonts-inconsolata',
         'kdiff3',
+        'code',
         'git-gui', 'gitk', 'git-lfs',
         'docker.io',
         'exa',
