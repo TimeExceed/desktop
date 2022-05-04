@@ -13,6 +13,9 @@
         120
     ],
     "editor.minimap.enabled": false,
+    "files.trimTrailingWhitespace": true,
     "rust-analyzer.inlayHints.enable": false,
-    "rust-analyzer.lens.enable": false
+    "rust-analyzer.lens.enable": false,
+    "latex-workshop.intellisense.file.base": "file relative",
+    "latex-workshop.latex.autoBuild.run": "never"
 }
