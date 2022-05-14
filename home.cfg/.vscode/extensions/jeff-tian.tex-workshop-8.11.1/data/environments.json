@@ -178,5 +178,9 @@
   },
   "titlepage": {
     "name": "titlepage"
+  },
+  "block": {
+    "name": "block",
+    "snippet": "{$0}"
   }
 }

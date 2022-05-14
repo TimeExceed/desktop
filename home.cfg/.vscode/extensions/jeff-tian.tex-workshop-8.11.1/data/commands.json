@@ -1239,10 +1239,14 @@
     "command": "mathtt{text}",
     "snippet": "mathtt{${1:text}}"
   },
-  "block": {
-    "command": "block",
-    "snippet": "begin{block}{$0}\n\\end{block}",
-    "detail": "Insert a block",
-    "label": "\\begin{block} ... \\end{block}"
+  "note": {
+    "command": "note",
+    "snippet": "note{\n\t$0\n}",
+    "detail": "note page in beamer"
+  },
+  "note[]": {
+    "command": "note[enumerate]",
+    "snippet": "note[enumerate]{\n\t\\item $0\n}",
+    "detail": "enumerating note page in beamer"
   }
 }
