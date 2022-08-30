@@ -59,7 +59,7 @@ def install_pkgs():
         'code',
         'git-gui', 'gitk', 'git-lfs',
         'docker.io',
-        'exa', 'fd-find', 'ripgrep',
+        'exa', 'fd-find', 'ripgrep', 'bat',
         'python3-pip',
         'python3-pygments',
         'emacs',
