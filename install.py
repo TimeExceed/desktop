@@ -67,8 +67,6 @@ def install_pkgs():
         'ipython3',
         'tmux',
         'flameshot',
-        'vulkan-tools',
-        'gnome-control-center', 'gnome-system-tools',
         'xfce4-notes', 'xfce4-notes-plugin', 'xfce4-systemload-plugin', 'xfce4-netload-plugin', 'xfce4-goodies', 'xfce4-cpugraph-plugin',
         'net-tools', 'oping',
         'fcitx5', 'fcitx5-pinyin', 'fcitx5-chinese-addons',
