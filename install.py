@@ -59,7 +59,7 @@ def install_pkgs():
         'code',
         'git-gui', 'gitk', 'git-lfs', 'qgit',
         'podman',
-        'exa', 'fd-find', 'ripgrep', 'bat', 'fish',
+        'fd-find', 'ripgrep', 'bat', 'fish',
         'python3-pip',
         'python3-pygments',
         'emacs',
@@ -113,13 +113,13 @@ def prepare_etc():
         check_run_cmd(cmd)
 
 if __name__ == '__main__':
-    src_updated = install_apt_source(Path('vscode.list'), Path('packages.microsoft.gpg'))
-    if src_updated:
-        cmd = [
-            'sudo', 'apt-get', 'update',
-        ]
-        check_run_cmd(cmd)
-    install_pkgs()
-    disable_sysctl_units()
-    prepare_home()
+    #src_updated = install_apt_source(Path('vscode.list'), Path('packages.microsoft.gpg'))
+    #if src_updated:
+    #    cmd = [
+    #        'sudo', 'apt-get', 'update',
+    #    ]
+    #    check_run_cmd(cmd)
+    #install_pkgs()
+    #disable_sysctl_units()
+    #prepare_home()
     prepare_etc()
