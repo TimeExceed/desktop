@@ -52,14 +52,14 @@ def check_run_cmd(cmd):
 
 def install_pkgs():
     pkgs = [
+        'code',
         'htop',
         'konsole',
         'fonts-inconsolata',
         'kdiff3',
-        'code',
         'git-gui', 'gitk', 'git-lfs', 'qgit',
         'podman',
-        'fd-find', 'ripgrep', 'bat', 'fish',
+        'fd-find', 'ripgrep', 'bat', 'fish', 'eza',
         'python3-pip',
         'python3-pygments',
         'emacs',
@@ -67,8 +67,9 @@ def install_pkgs():
         'ipython3',
         'tmux',
         'flameshot',
-        'xfce4-notes', 'xfce4-notes-plugin', 'xfce4-systemload-plugin', 'xfce4-netload-plugin', 'xfce4-goodies', 'xfce4-cpugraph-plugin',
         'net-tools', 'oping',
+        'vlc', 'ffmpeg',
+        'xfce4-notes', 'xfce4-notes-plugin', 'xfce4-systemload-plugin', 'xfce4-netload-plugin', 'xfce4-goodies', 'xfce4-cpugraph-plugin', 'xfce4-indicator-plugin', 'xfce4-power-manager',
         'fcitx5', 'fcitx5-pinyin', 'fcitx5-chinese-addons',
     ]
     cmd = ['sudo', 'apt-get', 'install', '-y'] + pkgs
@@ -112,12 +113,12 @@ def prepare_etc():
         check_run_cmd(cmd)
 
 if __name__ == '__main__':
-    src_updated = install_apt_source(Path('vscode.list'), Path('packages.microsoft.gpg'))
+    src_updated = install_apt_source(Path('vscode.sources'), Path('packages.microsoft.gpg'))
     if src_updated:
-       cmd = [
-           'sudo', 'apt-get', 'update',
-       ]
-       check_run_cmd(cmd)
+        cmd = [
+            'sudo', 'apt-get', 'update',
+        ]
+        check_run_cmd(cmd)
     install_pkgs()
     disable_sysctl_units()
     prepare_home()
