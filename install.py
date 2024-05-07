@@ -42,8 +42,14 @@ def update_apt_src(src, des_d):
 def install_apt_source(src, gpg):
     gpg_d = Path('/etc/apt/trusted.gpg.d/')
     src_d = Path('/etc/apt/sources.list.d/')
-    gpg_updated = update_apt_src(gpg, gpg_d)
-    src_updated = update_apt_src(src, src_d)
+    if gpg:
+        gpg_updated = update_apt_src(gpg, gpg_d)
+    else:
+        gpg_updated = False
+    if src:
+        src_updated = update_apt_src(src, src_d)
+    else:
+        src_updated = False
     return gpg_updated or src_updated
 
 def check_run_cmd(cmd):
@@ -58,7 +64,7 @@ def install_pkgs():
         'fonts-inconsolata',
         'kdiff3',
         'git-gui', 'gitk', 'git-lfs', 'qgit',
-        'podman',
+        'podman', 'containers-storage',
         'fd-find', 'ripgrep', 'bat', 'fish', 'eza',
         'python3-pip',
         'python3-pygments',
@@ -113,12 +119,10 @@ def prepare_etc():
         check_run_cmd(cmd)
 
 if __name__ == '__main__':
-    src_updated = install_apt_source(Path('vscode.sources'), Path('packages.microsoft.gpg'))
-    if src_updated:
-        cmd = [
-            'sudo', 'apt-get', 'update',
-        ]
-        check_run_cmd(cmd)
+    src_updated = install_apt_source(Path('ubuntu.sources'), None)
+    vscode_updated = install_apt_source(Path('vscode.sources'), Path('packages.microsoft.gpg'))
+    if src_updated or vscode_updated:
+        check_run_cmd(['sudo', 'apt-get', 'update'])
     install_pkgs()
     disable_sysctl_units()
     prepare_home()
