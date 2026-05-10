@@ -6,6 +6,6 @@ if status is-interactive
     end
 
     set --export EDITOR emacs
-    alias e=emacs
     alias cat=batcat
+    alias ls='eza -lh@'
 end
