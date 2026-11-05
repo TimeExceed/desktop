@@ -1,0 +1,471 @@
+[[tasks]]
+id = "nopasswd-sudo"
+display-name = "sudo 免密"
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/etc/sudoers.d/"
+files = [
+    "nopasswd-sudo/sudoers.d/taoda",
+]
+run-as-root = true
+
+[[tasks.steps]]
+id = "manual-check"
+prompt = """
+请执行 `sudo -n true`，若无需密码即返回成功，则确认。
+"""
+
+
+[[tasks]]
+id = "set-hostname"
+display-name = "设置 hostname"
+
+[[tasks.steps]]
+id = "set-hostname"
+hostname = "taoda-home"
+
+[[tasks.steps]]
+id = "reboot"
+# 系统中可能有些服务缓存了其启动时的 hostname。故重启以求稳妥。
+prompt = "即将重启电脑以使 hostname 的修改生效"
+
+
+[[tasks]]
+id = "no-beep"
+display-name = "关闭哔哔叫"
+
+[[tasks.steps]]
+id = "patch-file"
+dest = "/etc/lightdm/lightdm.conf"
+backup = "/etc/lightdm/lightdm.conf.bak"
+patch = "no-beep/lightdm/lightdm.conf.patch"
+run-as-root = true
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/autostart/"
+files = [
+    "no-beep/xfce/nobeep.desktop",
+]
+
+
+[[tasks]]
+id = "pinyin"
+display-name = "拼音输入法"
+
+[[tasks.steps]]
+id = "dnf-install"
+packages = [
+    "fcitx5",
+    "fcitx5-chinese-addons",
+    "fcitx5-configtool",
+    "fcitx5-autostart",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/"
+files = [
+    "pinyin/fcitx/.xprofile"
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/fcitx5/"
+files = [
+    "pinyin/fcitx/config",
+    "pinyin/fcitx/profile",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.local/share/fcitx5/pinyin/"
+files = [
+    "pinyin/fcitx/user.dict",
+    "pinyin/fcitx/user.history",
+]
+
+[[tasks.steps]]
+id = "reboot"
+prompt = "即将重启电脑以使中文输入法生效"
+
+[[tasks.steps]]
+id = "manual-check"
+prompt = """
+请打开编辑器如 mousepad 并尝试输入中文，以验证中文输入法是否安装妥帖。
+"""
+
+
+[[tasks]]
+id = "data-disk"
+display-name = "数据盘自动挂载"
+
+[[tasks.steps]]
+id = "python"
+exec = "data-disk/install.py"
+verify = "data-disk/verify.py"
+run-as-root = true
+
+[[tasks.steps]]
+id = "reboot"
+prompt = "修改fstab需要重启生效。"
+
+[[tasks.steps]]
+# 自动检查数据盘是否正确挂载。并不真的安装什么。
+id = "python"
+exec = "data-disk/post-check.py"
+verify = "data-disk/post-check.py"
+
+
+[[tasks]]
+id = "nonfree-audio"
+display-name = "安装专利编解码器"
+
+[[tasks.steps]]
+id = "dnf-repo"
+repo-id = "rpmfusion"
+release-rpms = [
+    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$releasever.noarch.rpm",
+    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$releasever.noarch.rpm",
+]
+
+[[tasks.steps]]
+id = "python"
+exec = "nonfree-audio/install.py"
+verify = "nonfree-audio/verify.py"
+run-as-root = true
+
+
+[[tasks]]
+id = "xfce"
+display-name = "Xfce桌面设置"
+
+[[tasks.steps]]
+id = "dnf-install"
+packages = [
+    'xfce4-notes-plugin',
+    'xfce4-whiskermenu-plugin',
+    'xfce4-cpugraph-plugin',
+    'xfce4-netload-plugin',
+    'xfce4-pulseaudio-plugin',
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/xfce4/panel"
+files = [
+    "xfce/panel/netload-13.rc",
+    "xfce/panel/xfce4-notes-plugin-14.rc",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/xfce4/xfconf/xfce-perchannel-xml"
+files = [
+    "xfce/xfconf/displays.xml",
+    "xfce/xfconf/keyboards.xml",
+    "xfce/xfconf/thunar.xml",
+    "xfce/xfconf/xfce4-appfinder.xml",
+    "xfce/xfconf/xfce4-desktop.xml",
+    "xfce/xfconf/xfce4-keyboard-shortcuts.xml",
+    "xfce/xfconf/xfce4-mime-settings.xml",
+    "xfce/xfconf/xfce4-notifyd.xml",
+    "xfce/xfconf/xfce4-panel.xml",
+    "xfce/xfconf/xfce4-power-manager.xml",
+    "xfce/xfconf/xfce4-screensaver.xml",
+    "xfce/xfconf/xfce4-session.xml",
+    "xfce/xfconf/xfce4-settings-manager.xml",
+    "xfce/xfconf/xfce4-taskmanager.xml",
+    "xfce/xfconf/xfce4-terminal.xml",
+    "xfce/xfconf/xfwm4.xml",
+    "xfce/xfconf/xsettings.xml",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.local/share/notes/便笺"
+files = [
+    "xfce/notes/便笺 1",
+]
+
+[[tasks.steps]]
+id = "reboot"
+prompt = """
+恢复Xfce桌面设置。重启后生效。
+"""
+
+[[tasks.steps]]
+id = "manual-check"
+prompt = """
+请逐项检查Xfce桌面：
+- 是否有两块屏幕，外接屏（Dell）在上，主屏幕（eDP）在下。
+- 是否只有一个 panel，且该 panel 出现在主屏幕的顶端。
+- panel 上顺序是 whisper-menu、notes、window-button、工作区、CPU 图像、网络监控、状态栏、音量和时钟。
+"""
+
+[[tasks.steps]]
+id = "manual-check"
+prompt = """
+请逐项检查Xfce桌面：
+- whisper-menu 的布局是否熟悉。
+- notes 的内容是否和重装之前一样。
+- 设置/屏幕保护：
+  + 是否关闭屏保？
+- 设置/电源管理：
+  + 按下电源按钮时，是否关机？
+  + 系统：无论电池还是电源，合上笔记本盖时是否什么都不做？
+  + 显示：无论电池还是电源，是否关闭显示电源管理，是否亮度降低是“100%”和“从不”。
+"""
+
+[[tasks.steps]]
+id = "manual-check"
+prompt = """
+请逐项检查Xfce桌面快捷键：
+- win-1/2/3/4：切换四工作区
+- alt-win-1/2/3/4：窗口搬至四工作区
+- ctrl-esc：呼出whisper-menu
+- alt-tab：切换窗口
+- win-tab：切换同程序下窗口
+"""
+
+
+[[tasks]]
+id = "fonts"
+display-name = "中文字体"
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/usr/local/share/fonts/maple-mono"
+files = [
+    'fonts/maple/config.json',
+    'fonts/maple/LICENSE.txt',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-Bold.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-BoldItalic.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-ExtraBold.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-ExtraBoldItalic.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-ExtraLight.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-ExtraLightItalic.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-Italic.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-Light.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-LightItalic.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-Medium.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-MediumItalic.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-Regular.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-SemiBold.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-SemiBoldItalic.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-Thin.ttf',
+    'fonts/maple/MapleMonoNormalNL-NF-CN-ThinItalic.ttf',
+]
+run-as-root = true
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/usr/local/share/fonts/lxgw-wenkai-v1.530"
+files = [
+    'fonts/lxgw-wenkai-v1.530/LXGWWenKai-Light.ttf',
+    'fonts/lxgw-wenkai-v1.530/LXGWWenKai-Medium.ttf',
+    'fonts/lxgw-wenkai-v1.530/LXGWWenKai-Regular.ttf',
+    'fonts/lxgw-wenkai-v1.530/LXGWWenKaiMono-Light.ttf',
+    'fonts/lxgw-wenkai-v1.530/LXGWWenKaiMono-Medium.ttf',
+    'fonts/lxgw-wenkai-v1.530/LXGWWenKaiMono-Regular.ttf',
+    'fonts/lxgw-wenkai-v1.530/OFL.txt',
+]
+run-as-root = true
+
+[[tasks.steps]]
+id = "python"
+exec = "fonts/install.py"
+verify = "fonts/verify.py"
+run-as-root = true
+
+
+[[tasks]]
+id = "vscode"
+display-name = "Visual Studio Code"
+
+[[tasks.steps]]
+id = "dnf-repo"
+repo-id = "code"
+baseurl = "https://packages.microsoft.com/yumrepos/vscode"
+gpgkey = "https://packages.microsoft.com/keys/microsoft.asc"
+
+[[tasks.steps]]
+id = "dnf-install"
+packages = [
+    "code",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/Code/User"
+files = [
+    "vscode/settings.json",
+    "vscode/keybindings.json",
+]
+
+
+[[tasks]]
+id = "zed"
+display-name = "Zed 编辑器"
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/zed"
+files = [
+    "zed/settings.json",
+]
+
+[[tasks.steps]]
+id = "soft-link"
+dest = "/home/taoda/.local/bin/zed"
+src = "/media/data/local/zed.app/bin/zed"
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.local/share/applications"
+files = [
+    "zed/dev.zed.Zed.desktop",
+]
+
+
+[[tasks]]
+id = "fish"
+display-name = "fish shell"
+
+[[tasks.steps]]
+id = "dnf-install"
+packages = [
+    "fish",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/fish"
+files = [
+    "fish/config.fish",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/fish/completions"
+files = [
+    "fish/completions/memory-palace.fish",
+]
+
+
+[[tasks]]
+id = "dev"
+display-name = "编程环境"
+
+[[tasks.steps]]
+id = "dnf-install"
+packages = [
+    "gcc",
+    "gcc-c++",
+    "openssl-devel",
+    "git",
+    "git-lfs",
+    "git-gui",
+    "gitk",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/etc/profile.d"
+files = [
+    "dev/rust-env.sh",
+]
+run-as-root = true
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda"
+files = [
+    "dev/.gitconfig",
+]
+
+
+[[tasks]]
+id = "ghostty"
+display-name = "Ghostty 终端"
+
+[[tasks.steps]]
+id = "dnf-repo"
+repo-id = "copr:copr.fedorainfracloud.org:scottames:ghostty"
+baseurl = "https://download.copr.fedorainfracloud.org/results/scottames/ghostty/fedora-$releasever-$basearch/"
+gpgkey = "https://download.copr.fedorainfracloud.org/results/scottames/ghostty/pubkey.gpg"
+
+[[tasks.steps]]
+id = "dnf-install"
+packages = [
+    "ghostty",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/ghostty"
+files = [
+    "ghostty/config.ghostty",
+]
+
+
+[[tasks]]
+id = "code-agent"
+display-name = "Code Agent"
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/usr/local/bin"
+files = [
+    "code-agent/bin/adrscope",
+    "code-agent/bin/codegraph",
+    "code-agent/bin/memory-palace",
+]
+run-as-root = true
+
+[[tasks.steps]]
+id = "dnf-install"
+local-rpms = [
+    "/home/taoda/下载/ReasonixStudio-linux-amd64.rpm",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.reasonix"
+files = [
+    "code-agent/reasonix/.env",
+    "code-agent/reasonix/config.toml",
+    "code-agent/reasonix/REASONIX.md",
+]
+
+[[tasks.steps]]
+id = "soft-link"
+dest = "/home/taoda/.agents/skills/managing-madr"
+src = "/media/data/personal/adr-skill/managing-madr"
+
+
+[[tasks]]
+id = "misc"
+display-name = "杂项工具"
+
+[[tasks.steps]]
+id = "dnf-install"
+packages = [
+    "@vlc",
+    "qbittorrent",
+    "htop",
+    "musl-gcc",
+    "eza",
+    "ripgrep",
+    "bat",
+    "meld",
+    "python3-ipython",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.config/htop"
+files = [
+    "misc/htoprc",
+]
