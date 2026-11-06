@@ -237,6 +237,7 @@ $defs:
     - id
     - patch
     - dest
+    - backup
     additionalProperties: false
 
   python:

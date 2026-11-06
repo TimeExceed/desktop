@@ -1,0 +1,36 @@
+# 静态测试夹具：覆盖备份器的四类数据源。
+#
+# 路径中的 {{FIXTURES}} 由测试替换为 fixtures 目录的绝对路径，
+# 因为 policy 的 dest-dir 要求绝对路径，而仓库位置不固定。
+
+[[tasks]]
+id = "demo"
+display-name = "静态夹具"
+
+# 用户数据
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "{{FIXTURES}}/src"
+files = [
+    "demo/dotfile.conf",
+]
+
+# 本地 rpm
+[[tasks.steps]]
+id = "dnf-install"
+local-rpms = [
+    "{{FIXTURES}}/src/demo.rpm",
+]
+
+# 策略资产：脚本
+[[tasks.steps]]
+id = "python"
+exec = "scripts/install.py"
+verify = "scripts/verify.py"
+
+# 策略资产：patch
+[[tasks.steps]]
+id = "patch-file"
+patch = "patches/demo.patch"
+dest = "{{FIXTURES}}/src/dotfile.conf"
+backup = "{{FIXTURES}}/src/dotfile.conf.bak"
