@@ -467,6 +467,7 @@ packages = [
     "bat",
     "meld",
     "python3-ipython",
+    "fd-find",
 ]
 
 [[tasks.steps]]
@@ -474,4 +475,16 @@ id = "copy-files"
 dest-dir = "/home/taoda/.config/htop"
 files = [
     "misc/htoprc",
+]
+
+[[tasks.steps]]
+id = "soft-link"
+dest = "/home/taoda/.local/bin/qqmusic"
+src = "/media/data/local/qqmusic/qqmusic"
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.local/share/applications"
+files = [
+    "misc/qqmusic.desktop",
 ]
