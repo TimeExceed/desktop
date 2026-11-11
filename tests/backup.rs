@@ -57,7 +57,6 @@ files = ["demo/a.txt"]
     assert_eq!(task.display_name, "演示");
     assert_eq!(task.steps.len(), 1);
     assert_eq!(task.steps[0].id(), "copy-files");
-    assert_eq!(repo_root(&policy_path), dir.path());
 }
 
 #[test]
@@ -170,13 +169,6 @@ fn static_fixture_covers_every_backup_source() {
                         checked += 1;
                     }
                 }
-                Action::Python { exec, verify, .. } => {
-                    for rel in [exec, verify] {
-                        let src = fixtures.join(rel);
-                        assert!(src.is_file(), "缺少脚本：{}", src.display());
-                        checked += 1;
-                    }
-                }
                 Action::PatchFile { dest, backup, .. } => {
                     assert!(dest.is_file(), "缺少 patch 目标：{}", dest.display());
                     assert!(backup.is_file(), "缺少 patch 基准：{}", backup.display());
@@ -187,7 +179,7 @@ fn static_fixture_covers_every_backup_source() {
         }
     }
 
-    assert_eq!(checked, 6, "夹具应覆盖 6 个源文件");
+    assert_eq!(checked, 4, "夹具应覆盖 4 个源文件");
 
     // 夹具内容确实可以复制出来
     let out = scratch("fixture-copy");
@@ -418,88 +410,6 @@ src = "{}"
     .expect("创建步骤上下文");
 
     assert!(step.restore(&ctx).is_err(), "指向别处应当报错");
-}
-
-/// `python` 在 verify 通过时应当跳过 exec。
-#[test]
-fn python_action_skips_when_verify_passes() {
-    let dir = scratch("python-skip");
-    let usb = dir.path().join("usb");
-    let marker = dir.path().join("marker");
-
-    fs::create_dir_all(usb.join("scripts")).expect("创建脚本目录");
-    fs::write(usb.join("scripts/verify.py"), "import sys\nsys.exit(0)\n").expect("写入 verify");
-    fs::write(
-        usb.join("scripts/install.py"),
-        format!("open({:?}, 'w').write('x')\n", marker.display().to_string()),
-    )
-    .expect("写入 install");
-
-    let policy_path = dir.path().join("policy.toml");
-    fs::write(
-        &policy_path,
-        r#"
-[[tasks]]
-id = "demo"
-display-name = "演示"
-
-[[tasks.steps]]
-id = "python"
-exec = "scripts/install.py"
-verify = "scripts/verify.py"
-"#,
-    )
-    .expect("写入策略");
-
-    let policy = Policy::load(&policy_path).expect("解析策略");
-    let step = &policy.tasks[0].steps[0];
-
-    let ctx =
-        StepContext::new("test".into(), usb, dir.path().join("state")).expect("创建步骤上下文");
-
-    step.restore(&ctx).expect("跳过");
-    assert!(!marker.exists(), "verify 通过时不应执行 install");
-}
-
-/// `python` 在 verify 失败时应当执行 exec。
-#[test]
-fn python_action_runs_exec_when_verify_fails() {
-    let dir = scratch("python-run");
-    let usb = dir.path().join("usb");
-    let marker = dir.path().join("marker");
-
-    fs::create_dir_all(usb.join("scripts")).expect("创建脚本目录");
-    fs::write(usb.join("scripts/verify.py"), "import sys\nsys.exit(1)\n").expect("写入 verify");
-    fs::write(
-        usb.join("scripts/install.py"),
-        format!("open({:?}, 'w').write('x')\n", marker.display().to_string()),
-    )
-    .expect("写入 install");
-
-    let policy_path = dir.path().join("policy.toml");
-    fs::write(
-        &policy_path,
-        r#"
-[[tasks]]
-id = "demo"
-display-name = "演示"
-
-[[tasks.steps]]
-id = "python"
-exec = "scripts/install.py"
-verify = "scripts/verify.py"
-"#,
-    )
-    .expect("写入策略");
-
-    let policy = Policy::load(&policy_path).expect("解析策略");
-    let step = &policy.tasks[0].steps[0];
-
-    let ctx =
-        StepContext::new("test".into(), usb, dir.path().join("state")).expect("创建步骤上下文");
-
-    step.restore(&ctx).expect("执行");
-    assert!(marker.exists(), "verify 失败时应当执行 install");
 }
 
 /// `manual-check` 在已确认时应当直接跳过，不再读取 stdin。

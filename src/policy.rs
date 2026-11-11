@@ -54,15 +54,12 @@ pub enum Action {
         packages: Vec<String>,
         #[serde(default)]
         local_rpms: Vec<PathBuf>,
-    },
-
-    /// 执行 python 脚本，并用另一个脚本校验。
-    #[serde(rename_all = "kebab-case")]
-    Python {
-        exec: String,
-        verify: String,
         #[serde(default)]
-        run_as_root: bool,
+        exclude: Vec<String>,
+        #[serde(default)]
+        setopt: Vec<String>,
+        #[serde(default)]
+        allowerasing: bool,
     },
 
     /// 给目标文件打 patch。
@@ -108,6 +105,24 @@ pub enum Action {
         #[serde(default)]
         run_as_root: bool,
     },
+
+    /// 刷新字体缓存。
+    #[serde(rename_all = "kebab-case")]
+    UpdateFcCache,
+
+    /// 自动挑选数据分区，写入 fstab 并挂载。
+    #[serde(rename_all = "kebab-case")]
+    Mount {
+        mount_point: PathBuf,
+        #[serde(default = "default_min_size_gb")]
+        min_size_gb: u64,
+        #[serde(default)]
+        options: Vec<String>,
+    },
+}
+
+fn default_min_size_gb() -> u64 {
+    100
 }
 
 impl Action {
@@ -116,13 +131,14 @@ impl Action {
         match self {
             Action::CopyFiles { .. } => "copy-files",
             Action::DnfInstall { .. } => "dnf-install",
-            Action::Python { .. } => "python",
             Action::PatchFile { .. } => "patch-file",
             Action::DnfRepo { .. } => "dnf-repo",
             Action::SetHostname { .. } => "set-hostname",
             Action::Reboot { .. } => "reboot",
             Action::ManualCheck { .. } => "manual-check",
             Action::SoftLink { .. } => "soft-link",
+            Action::UpdateFcCache => "update-fc-cache",
+            Action::Mount { .. } => "mount",
         }
     }
 }
@@ -171,12 +187,7 @@ impl Action {
     /// - `log_target`：日志里标识「任务/步骤序号-动作名」。
     /// - `backup_dir`：U 盘上的备份根目录；
     /// - `repo_root`：策略资产所在目录，脚本与 patch 从这里取；
-    pub fn backup(
-        &self,
-        log_target: &str,
-        backup_dir: &Path,
-        repo_root: &Path,
-    ) -> anyhow::Result<()> {
+    pub fn backup(&self, log_target: &str, backup_dir: &Path) -> anyhow::Result<()> {
         match self {
             // 用户数据：从系统目标路径收进 U 盘，保持 files 里的相对路径。
             Action::CopyFiles {
@@ -202,16 +213,6 @@ impl Action {
                     let dst = backup_dir.join(base);
                     backup_file(rpm, &dst)?;
                     info!(target: log_target, "{} → {}", rpm.display(), dst.display());
-                }
-            }
-
-            // 策略资产：脚本随恢复器分发。
-            Action::Python { exec, verify, .. } => {
-                for rel in [exec, verify] {
-                    let src = repo_root.join(rel);
-                    let dst = backup_dir.join(rel);
-                    backup_file(&src, &dst)?;
-                    info!(target: log_target, "{} → {}", src.display(), dst.display());
                 }
             }
 
@@ -302,6 +303,9 @@ impl Action {
             Action::DnfInstall {
                 packages,
                 local_rpms,
+                exclude,
+                setopt,
+                allowerasing,
             } => {
                 // 先把本地 rpm 恢复到策略里的原路径。
                 for rpm in local_rpms {
@@ -331,7 +335,19 @@ impl Action {
                     info!(target: &ctx.log_target, "所需的包均已安装");
                 } else {
                     let mut cmd = Command::new("sudo");
-                    cmd.arg("dnf").arg("install").arg("-y").args(&pending);
+                    cmd.arg("dnf").arg("install").arg("-y");
+
+                    for s in setopt {
+                        cmd.arg(format!("--setopt={s}"));
+                    }
+                    for e in exclude {
+                        cmd.arg(format!("--exclude={e}"));
+                    }
+                    if *allowerasing {
+                        cmd.arg("--allowerasing");
+                    }
+
+                    cmd.args(&pending);
 
                     let status = ctx
                         .run(&mut cmd)
@@ -372,11 +388,11 @@ impl Action {
 
                 // 状态文件记录的是上次请求重启时的 boot-id；
                 // 与当前不同，说明重启已经发生过。
-                if let Ok(prev) = fs::read_to_string(&boot_id_file) {
-                    if prev.trim() != current {
-                        info!(target: &ctx.log_target, "重启已完成");
-                        return Ok(());
-                    }
+                if let Ok(prev) = fs::read_to_string(&boot_id_file)
+                    && prev.trim() != current
+                {
+                    info!(target: &ctx.log_target, "重启已完成");
+                    return Ok(());
                 }
 
                 fs::write(&boot_id_file, &current)
@@ -555,24 +571,24 @@ impl Action {
                 }
 
                 // 父目录不存在就先建出来。
-                if let Some(parent) = dest.parent() {
-                    if !parent.exists() {
-                        if *run_as_root {
-                            let mut cmd = std::process::Command::new("sudo");
-                            cmd.arg("install").arg("-d").arg(parent);
+                if let Some(parent) = dest.parent()
+                    && !parent.exists()
+                {
+                    if *run_as_root {
+                        let mut cmd = std::process::Command::new("sudo");
+                        cmd.arg("install").arg("-d").arg(parent);
 
-                            let status = ctx
-                                .run(&mut cmd)
-                                .with_context(|| format!("创建目录失败：{}", parent.display()))?;
-                            anyhow::ensure!(
-                                status.success(),
-                                "创建目录失败（{status}）：{}",
-                                parent.display()
-                            );
-                        } else {
-                            fs::create_dir_all(parent)
-                                .with_context(|| format!("创建 {} 失败", parent.display()))?;
-                        }
+                        let status = ctx
+                            .run(&mut cmd)
+                            .with_context(|| format!("创建目录失败：{}", parent.display()))?;
+                        anyhow::ensure!(
+                            status.success(),
+                            "创建目录失败（{status}）：{}",
+                            parent.display()
+                        );
+                    } else {
+                        fs::create_dir_all(parent)
+                            .with_context(|| format!("创建 {} 失败", parent.display()))?;
                     }
                 }
 
@@ -598,48 +614,25 @@ impl Action {
                 info!(target: &ctx.log_target, "已创建软链接 {}", dest.display());
             }
 
-            // 执行 python 脚本：verify 通过即视为完成，否则运行 exec。
-            Action::Python {
-                exec,
-                verify,
-                run_as_root,
-            } => {
-                let exec_script = ctx.backup_dir.join(exec);
-                let verify_script = ctx.backup_dir.join(verify);
+            // 刷新字体缓存；fc-cache 本身幂等，直接执行。
+            Action::UpdateFcCache => {
+                let mut cmd = Command::new("sudo");
+                cmd.arg("fc-cache").arg("-fv");
 
-                // 1. 验证脚本通过说明这一步已经做过。
-                let mut verify_cmd = std::process::Command::new("python3");
-                verify_cmd.arg(&verify_script);
+                let status = ctx.run(&mut cmd).with_context(|| "执行 fc-cache 失败")?;
+                anyhow::ensure!(status.success(), "fc-cache 失败（{status}）");
 
-                let status = ctx
-                    .run(&mut verify_cmd)
-                    .with_context(|| format!("执行验证脚本失败：{verify}"))?;
-
-                if status.success() {
-                    info!(target: &ctx.log_target, "{verify} 通过，跳过");
-                    return Ok(());
-                }
-
-                // 2. 执行安装脚本。
-                let mut exec_cmd = if *run_as_root {
-                    let mut c = std::process::Command::new("sudo");
-                    c.arg("python3");
-                    c
-                } else {
-                    std::process::Command::new("python3")
-                };
-                exec_cmd.arg(&exec_script);
-
-                let status = ctx
-                    .run(&mut exec_cmd)
-                    .with_context(|| format!("执行脚本失败：{exec}"))?;
-                anyhow::ensure!(status.success(), "脚本失败（{status}）：{exec}");
-
-                info!(target: &ctx.log_target, "已执行 {exec}");
+                info!(target: &ctx.log_target, "已刷新字体缓存");
             }
 
-            // 其余动作尚未实现恢复。
-            _ => {}
+            // 自动挑选数据分区，写入 fstab 并挂载。
+            Action::Mount {
+                mount_point,
+                min_size_gb,
+                options,
+            } => {
+                mount_disk(ctx, mount_point, *min_size_gb, options)?;
+            }
         }
 
         Ok(())

@@ -65,7 +65,6 @@ impl Cli {
 
     fn backup(&self) -> anyhow::Result<()> {
         let policy = Policy::load(&self.policy_file)?;
-        let repo = repo_root(&self.policy_file);
 
         fs::create_dir_all(&self.backup_dir)
             .with_context(|| format!("创建备份目录 {} 失败", self.backup_dir.display()))?;
@@ -73,7 +72,7 @@ impl Cli {
         for task in &policy.tasks {
             for (idx, step) in task.steps.iter().enumerate() {
                 let target = format!("{}/{}-{}", task.id, idx, step.id());
-                step.backup(&target, &self.backup_dir, &repo)?;
+                step.backup(&target, &self.backup_dir)?;
             }
         }
 

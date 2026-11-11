@@ -50,8 +50,9 @@ $defs:
     - $ref: "#/$defs/copy-files"
     - $ref: "#/$defs/manual-check"
     - $ref: "#/$defs/patch-file"
-    - $ref: "#/$defs/python"
     - $ref: "#/$defs/soft-link"
+    - $ref: "#/$defs/update-fc-cache"
+    - $ref: "#/$defs/mount"
 
   dnf-install:
     description: |
@@ -73,6 +74,23 @@ $defs:
         type: array
         items:
           type: string
+      exclude:
+        description: |
+          传给 dnf 的 --exclude 参数，用于排除特定的包。
+        type: array
+        items:
+          type: string
+      setopt:
+        description: |
+          传给 dnf 的 --setopt 参数，形如 key=value。
+        type: array
+        items:
+          type: string
+      allowerasing:
+        description: |
+          允许 dnf 移除冲突的包，用于替换 ffmpeg-free 这类场景。
+        type: boolean
+        default: false
     required:
     - id
     anyOf:
@@ -240,37 +258,44 @@ $defs:
     - backup
     additionalProperties: false
 
-  python:
-    description: >-
-      执行python-3.14(Fedora-44自带)程序。
-      仅用于现有动作无法表达的场景。
+  update-fc-cache:
+    description: |
+      刷新字体缓存，等价于 `fc-cache -fv`。
     type: object
     properties:
       id:
-        const: python
-      exec:
-        description: |
-          需执行的python程序。
-
-          - 是一个相对备份器/恢复器的路径。
-          - 返回0为成功，其它皆为失败。
-          - 需要自行处理好partial failure，保证约定的幂等性。
-        type: string
-      verify:
-        description: |
-          验证执行是否成功的python程序。
-
-          - 是一个相对备份器/恢复器的路径。
-          - 返回0为成功，其它皆为失败。
-        type: string
-      run-as-root:
-        description: 是否以 root 身份执行
-        type: boolean
-        default: false
+        const: update-fc-cache
     required:
     - id
-    - exec
-    - verify
+    additionalProperties: false
+
+  mount:
+    description: |
+      自动挑选一块容量足够、且不承载系统挂载点的数据分区，
+      写入 `/etc/fstab` 并挂载到指定挂载点。
+    type: object
+    properties:
+      id:
+        const: mount
+      mount-point:
+        description: 挂载点，必须是绝对路径
+        type: string
+        pattern: ^/
+      min-size-gb:
+        description: 候选分区的最小容量（GiB）
+        type: integer
+        minimum: 1
+        default: 100
+      options:
+        description: |
+          fstab 挂载选项。省略时按文件系统自动选择：
+          btrfs 用 `defaults,noatime,compress=zstd`，其余用 `defaults,noatime`。
+        type: array
+        items:
+          type: string
+    required:
+    - id
+    - mount-point
     additionalProperties: false
 
   soft-link:

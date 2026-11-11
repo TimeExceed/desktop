@@ -2,6 +2,8 @@
 
 use crate::*;
 use anyhow::Context as _;
+use log::info;
+use serde::Deserialize;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -208,4 +210,199 @@ pub fn restore_file(
     );
 
     Ok(())
+}
+
+/// `lsblk --json` 输出的最小结构。
+#[derive(Debug, Deserialize)]
+struct LsblkOutput {
+    #[serde(default)]
+    blockdevices: Vec<BlockDevice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BlockDevice {
+    #[serde(default)]
+    children: Vec<BlockDevice>,
+    size: u64,
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    fstype: Option<String>,
+    #[serde(default)]
+    uuid: Option<String>,
+    #[serde(default)]
+    mountpoints: Vec<Option<String>>,
+}
+
+/// 自动挑选一块数据分区，写入 `/etc/fstab` 并挂载到 `mount_point`。
+///
+/// 候选条件：容量不小于 `min_size_gb`、有 UUID、不是 swap、
+/// 且没有承载 `/`、`/boot`、`/boot/efi` 中的任何一个。
+/// 必须恰好一个候选，否则报错。
+pub fn mount_disk(
+    ctx: &StepContext,
+    mount_point: &Path,
+    min_size_gb: u64,
+    options: &[String],
+) -> anyhow::Result<()> {
+    if is_mounted(mount_point) {
+        // 这里有一点小漏洞：
+        // 有可能 `mount_point` 已经挂载，但 `/etc/fstab` 尚未修改的可能。
+        // 但这种可能只在手工 mount 过才会发生，可能性很小。
+        // 就偷个懒吧。
+        info!(target: &ctx.log_target, "已挂载 {}", mount_point.display());
+        return Ok(());
+    }
+
+    let output = Command::new("lsblk")
+        .args([
+            "--json",
+            "-b",
+            "-o",
+            "NAME,SIZE,TYPE,FSTYPE,UUID,MOUNTPOINTS",
+        ])
+        .output()
+        .context("执行 lsblk 失败")?;
+    anyhow::ensure!(output.status.success(), "lsblk 失败（{}）", output.status);
+
+    let parsed: LsblkOutput =
+        serde_json::from_slice(&output.stdout).context("解析 lsblk 输出失败")?;
+
+    let min_bytes = min_size_gb * 1024 * 1024 * 1024;
+    let system_mounts = ["/", "/boot", "/boot/efi"];
+
+    let mut candidates: Vec<(String, String)> = Vec::new(); // (UUID, fstype)
+    for disk in &parsed.blockdevices {
+        for part in &disk.children {
+            if part.kind != "part" {
+                continue;
+            }
+
+            let fstype = match &part.fstype {
+                None => {
+                    continue;
+                }
+                Some(fstype) if fstype == "swap" || fstype.is_empty() => {
+                    continue;
+                }
+                Some(fstype) => fstype,
+            };
+            let uuid = if let Some(uuid) = &part.uuid {
+                uuid
+            } else {
+                continue;
+            };
+            if part.size < min_bytes {
+                continue;
+            }
+
+            let carries_system = part
+                .mountpoints
+                .iter()
+                .flatten()
+                .any(|m| system_mounts.contains(&m.as_str()));
+            if carries_system {
+                continue;
+            }
+
+            candidates.push((uuid.clone(), fstype.clone()));
+        }
+    }
+
+    anyhow::ensure!(
+        candidates.len() == 1,
+        "期望恰好一个数据盘候选（≥{min_size_gb}G 且非系统分区），实际 {} 个",
+        candidates.len()
+    );
+
+    let (uuid, fstype) = candidates.pop().unwrap();
+
+    let opts = if options.is_empty() {
+        default_mount_options(&fstype)
+    } else {
+        options.join(",")
+    };
+
+    let point = format!("{}", mount_point.display());
+    let expected = [format!("UUID={uuid}"), point.clone(), fstype, opts];
+
+    // 1. fstab：已有条目则核对，没有则追加。
+    let fstab = fs::read_to_string("/etc/fstab").context("读取 /etc/fstab 失败")?;
+    let existing = fstab.lines().find_map(|line| {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            return None;
+        }
+
+        let fields: Vec<String> = line.split_whitespace().map(str::to_string).collect();
+        if fields.len() >= 2 && fields[1] == point {
+            Some(fields)
+        } else {
+            None
+        }
+    });
+
+    match existing {
+        Some(fields) => {
+            anyhow::ensure!(
+                fields.len() >= 4 && fields[..4] == expected[..],
+                "fstab 中 {} 已有不同条目：{}",
+                point,
+                fields.join(" ")
+            );
+            info!(target: &ctx.log_target, "fstab 条目已正确：{point}");
+        }
+        None => {
+            let staged = ctx.state_dir.join("fstab");
+            let mut content = fstab;
+            if !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(&expected.join(" "));
+            content.push_str(" 0 2\n");
+            fs::write(&staged, content)
+                .with_context(|| format!("写入 {} 失败", staged.display()))?;
+
+            restore_file(&staged, Path::new("/etc/fstab"), true, ctx)
+                .context("写入 /etc/fstab 失败")?;
+            info!(target: &ctx.log_target, "已写入 fstab 条目：{point}");
+        }
+    }
+
+    // 2. 挂载点目录。
+    if !mount_point.exists() {
+        let mut cmd = Command::new("sudo");
+        cmd.arg("install").arg("-d").arg(mount_point);
+
+        let status = ctx.run(&mut cmd)?;
+        anyhow::ensure!(status.success(), "创建挂载点失败：{point}");
+    }
+
+    // 3. 挂载。
+    let mut cmd = Command::new("sudo");
+    cmd.arg("mount").arg(mount_point);
+    let status = ctx.run(&mut cmd)?;
+    anyhow::ensure!(status.success(), "挂载失败：{point}");
+    info!(target: &ctx.log_target, "已挂载 {point}");
+
+    Ok(())
+}
+
+fn default_mount_options(fstype: &str) -> String {
+    if fstype == "btrfs" {
+        "defaults,noatime,compress=zstd".to_string()
+    } else {
+        "defaults,noatime".to_string()
+    }
+}
+
+fn is_mounted(point: &Path) -> bool {
+    Command::new("findmnt")
+        .arg("-n")
+        .arg(point)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }

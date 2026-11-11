@@ -22,12 +22,6 @@ local-rpms = [
     "{{FIXTURES}}/src/demo.rpm",
 ]
 
-# 策略资产：脚本
-[[tasks.steps]]
-id = "python"
-exec = "scripts/install.py"
-verify = "scripts/verify.py"
-
 # 策略资产：patch
 [[tasks.steps]]
 id = "patch-file"

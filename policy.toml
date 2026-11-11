@@ -102,20 +102,13 @@ id = "data-disk"
 display-name = "数据盘自动挂载"
 
 [[tasks.steps]]
-id = "python"
-exec = "data-disk/install.py"
-verify = "data-disk/verify.py"
-run-as-root = true
+id = "mount"
+mount-point = "/media/data"
+min-size-gb = 100
 
 [[tasks.steps]]
 id = "reboot"
 prompt = "修改fstab需要重启生效。"
-
-[[tasks.steps]]
-# 自动检查数据盘是否正确挂载。并不真的安装什么。
-id = "python"
-exec = "data-disk/post-check.py"
-verify = "data-disk/post-check.py"
 
 
 [[tasks]]
@@ -131,10 +124,19 @@ release-rpms = [
 ]
 
 [[tasks.steps]]
-id = "python"
-exec = "nonfree-audio/install.py"
-verify = "nonfree-audio/verify.py"
-run-as-root = true
+id = "dnf-install"
+packages = [
+    "@multimedia",
+    "ffmpeg",
+    "@vlc",
+]
+exclude = [
+    "PackageKit-gstreamer-plugin",
+]
+setopt = [
+    "install_weak_deps=False",
+]
+allowerasing = true
 
 
 [[tasks]]
@@ -274,10 +276,14 @@ files = [
 run-as-root = true
 
 [[tasks.steps]]
-id = "python"
-exec = "fonts/install.py"
-verify = "fonts/verify.py"
-run-as-root = true
+id = "copy-files"
+dest-dir = "/home/taoda/.config/fontconfig"
+files = [
+    'fonts/fontconfig/fonts.conf',
+]
+
+[[tasks.steps]]
+id = "update-fc-cache"
 
 
 [[tasks]]
