@@ -1,10 +1,10 @@
-//! fedora-setup 的共享逻辑：策略结构与文件操作。
-//!
-//! 备份器（`backup`）与恢复器（`restore`）是两个独立二进制，
-//! 共用这里的解析与文件操作。
-
+pub mod backup;
 mod r#impl;
 mod policy;
+pub mod restore;
 
 pub use self::r#impl::*;
 pub use self::policy::*;
+
+// 故意不 pub use `backup` 和 `restore` 下的内容。
+// 因为备份器不会用到 `restore`，反之亦然。

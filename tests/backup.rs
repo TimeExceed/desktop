@@ -3,7 +3,9 @@
 //! 临时目录由 `tempfile` 创建，测试结束时自动清理；
 //! 静态夹具位于 `tests/fixtures/`。
 
-use fedora_setup::{Action, Policy, copy_file, repo_root};
+use fedora_setup::backup::*;
+use fedora_setup::restore::*;
+use fedora_setup::*;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -83,15 +85,37 @@ files = ["a.txt"]
 }
 
 #[test]
-fn copy_file_keeps_content() {
+fn backup_file_keeps_content() {
     let dir = scratch("copy");
     let src = dir.path().join("src.txt");
     let dst = dir.path().join("nested/dst.txt");
     fs::write(&src, "hello\n").expect("写入源文件");
 
-    copy_file(&src, &dst).expect("复制文件");
+    backup_file(&src, &dst).expect("备份文件");
 
     assert_eq!(fs::read_to_string(&dst).expect("读取目标文件"), "hello\n");
+}
+
+#[test]
+fn backup_file_writes_checksum() {
+    let dir = scratch("checksum");
+    let src = dir.path().join("src.txt");
+    let dst = dir.path().join("out.txt");
+    fs::write(&src, "hello\n").expect("写入源文件");
+
+    backup_file(&src, &dst).expect("备份文件");
+
+    let sum_path = dir.path().join("out.txt.sha256sum");
+    let content = fs::read_to_string(&sum_path).expect("checksum 文件应存在");
+
+    assert!(
+        content.starts_with("5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"),
+        "checksum 内容不符：{content}"
+    );
+    assert!(
+        content.contains("out.txt"),
+        "checksum 应包含文件名：{content}"
+    );
 }
 
 #[test]
@@ -100,7 +124,7 @@ fn missing_source_is_error() {
     let src = dir.path().join("nope.txt");
     let dst = dir.path().join("out.txt");
 
-    assert!(copy_file(&src, &dst).is_err(), "缺失的源文件应当报错");
+    assert!(backup_file(&src, &dst).is_err(), "缺失的源文件应当报错");
 }
 
 #[test]
@@ -110,7 +134,10 @@ fn directory_is_not_a_copyable_file() {
     fs::create_dir_all(&src).expect("创建目录");
     let dst = dir.path().join("out");
 
-    assert!(copy_file(&src, &dst).is_err(), "目录不应被当作普通文件复制");
+    assert!(
+        backup_file(&src, &dst).is_err(),
+        "目录不应被当作普通文件复制"
+    );
 }
 
 /// 静态夹具必须覆盖备份器支持的全部四类数据源，
@@ -165,10 +192,368 @@ fn static_fixture_covers_every_backup_source() {
     // 夹具内容确实可以复制出来
     let out = scratch("fixture-copy");
     let dst = out.path().join("dotfile.conf");
-    copy_file(&fixtures.join("src/dotfile.conf"), &dst).expect("复制夹具文件");
+    backup_file(&fixtures.join("src/dotfile.conf"), &dst).expect("复制夹具文件");
     assert!(
         fs::read_to_string(&dst)
             .expect("读取复制后的夹具")
             .contains("theme = \"light\"")
     );
+}
+
+/// 组与包名的检测。
+#[test]
+fn dnf_installed_detects_packages() {
+    assert!(dnf_installed("bash").expect("检查 bash"), "bash 应当已安装");
+    assert!(
+        !dnf_installed("definitely-not-a-real-package-xyz").expect("检查不存在的包"),
+        "不存在的包应当返回 false"
+    );
+}
+
+/// `copy-files` 的恢复：从 U 盘写回目标目录，且重复执行是幂等的。
+#[test]
+fn restore_copy_files_and_is_idempotent() {
+    let dir = scratch("restore");
+    let backup_dir = dir.path().join("usb");
+    let dest_dir = dir.path().join("dest");
+
+    fs::create_dir_all(backup_dir.join("demo")).expect("创建备份目录");
+    fs::write(backup_dir.join("demo/a.txt"), "hello\n").expect("写入备份");
+
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        format!(
+            r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "{}"
+files = ["demo/a.txt"]
+"#,
+            dest_dir.display()
+        ),
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    let ctx = StepContext::new("test".into(), backup_dir.clone(), dir.path().join("state"))
+        .expect("创建步骤上下文");
+
+    step.restore(&ctx).expect("恢复");
+    assert_eq!(
+        fs::read_to_string(dest_dir.join("a.txt")).expect("读取恢复后的文件"),
+        "hello\n"
+    );
+
+    // 再跑一次：内容一致，应当跳过而不是报错。
+    step.restore(&ctx).expect("幂等恢复");
+}
+
+/// 仓库启用状态的检测。
+#[test]
+fn repo_enabled_detects_fedora_repo() {
+    assert!(
+        repo_enabled("fedora").expect("检查 fedora 仓库"),
+        "fedora 仓库应当已启用"
+    );
+    assert!(
+        !repo_enabled("no-such-repo-xyz").expect("检查不存在的仓库"),
+        "不存在的仓库应当返回 false"
+    );
+}
+
+/// `patch-file` 应当能打上补丁，且重复执行是幂等的。
+#[test]
+fn patch_file_applies_and_is_idempotent() {
+    let dir = scratch("patch");
+    let dest = dir.path().join("cfg.txt");
+    let backup = dir.path().join("cfg.txt.bak");
+    let usb = dir.path().join("usb");
+
+    fs::write(&dest, "theme = \"dark\"\nfont = \"Maple\"\n").expect("写入目标文件");
+
+    fs::create_dir_all(usb.join("demo")).expect("创建备份目录");
+    fs::write(
+        usb.join("demo/cfg.patch"),
+        "--- a/cfg.txt\n+++ b/cfg.txt\n@@ -1,2 +1,2 @@\n-theme = \"dark\"\n+theme = \"light\"\n font = \"Maple\"\n",
+    )
+    .expect("写入 patch");
+
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        format!(
+            r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "patch-file"
+patch = "demo/cfg.patch"
+dest = "{}"
+backup = "{}"
+"#,
+            dest.display(),
+            backup.display()
+        ),
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    let ctx = StepContext::new("test".into(), usb.clone(), dir.path().join("state"))
+        .expect("创建步骤上下文");
+
+    step.restore(&ctx).expect("打 patch");
+    assert_eq!(
+        fs::read_to_string(&dest).expect("读取目标文件"),
+        "theme = \"light\"\nfont = \"Maple\"\n"
+    );
+
+    // 幂等：再跑一次不应重复应用。
+    step.restore(&ctx).expect("幂等");
+    assert_eq!(
+        fs::read_to_string(&dest).expect("读取目标文件"),
+        "theme = \"light\"\nfont = \"Maple\"\n"
+    );
+}
+
+/// `soft-link` 创建链接，并且重复执行是幂等的。
+#[test]
+fn soft_link_creates_and_is_idempotent() {
+    let dir = scratch("softlink");
+    let target = dir.path().join("target");
+    let dest = dir.path().join("bin/link");
+
+    fs::create_dir_all(&target).expect("创建目标目录");
+
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        format!(
+            r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "soft-link"
+dest = "{}"
+src = "{}"
+"#,
+            dest.display(),
+            target.display()
+        ),
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    let ctx = StepContext::new(
+        "test".into(),
+        dir.path().to_path_buf(),
+        dir.path().join("state"),
+    )
+    .expect("创建步骤上下文");
+
+    step.restore(&ctx).expect("创建软链接");
+    assert!(dest.is_symlink(), "应当创建软链接");
+    assert_eq!(fs::read_link(&dest).expect("读取链接"), target);
+
+    // 幂等：再跑一次不报错。
+    step.restore(&ctx).expect("幂等");
+}
+
+/// 已指向别处的软链接应当报错，而不是被覆盖。
+#[test]
+fn soft_link_rejects_other_target() {
+    use std::os::unix::fs::symlink;
+
+    let dir = scratch("softlink-bad");
+    let target = dir.path().join("target");
+    let other = dir.path().join("other");
+    let dest = dir.path().join("link");
+
+    fs::create_dir_all(&target).expect("创建目标目录");
+    fs::create_dir_all(&other).expect("创建另一个目录");
+    symlink(&other, &dest).expect("预置错误链接");
+
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        format!(
+            r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "soft-link"
+dest = "{}"
+src = "{}"
+"#,
+            dest.display(),
+            target.display()
+        ),
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    let ctx = StepContext::new(
+        "test".into(),
+        dir.path().to_path_buf(),
+        dir.path().join("state"),
+    )
+    .expect("创建步骤上下文");
+
+    assert!(step.restore(&ctx).is_err(), "指向别处应当报错");
+}
+
+/// `python` 在 verify 通过时应当跳过 exec。
+#[test]
+fn python_action_skips_when_verify_passes() {
+    let dir = scratch("python-skip");
+    let usb = dir.path().join("usb");
+    let marker = dir.path().join("marker");
+
+    fs::create_dir_all(usb.join("scripts")).expect("创建脚本目录");
+    fs::write(usb.join("scripts/verify.py"), "import sys\nsys.exit(0)\n").expect("写入 verify");
+    fs::write(
+        usb.join("scripts/install.py"),
+        format!("open({:?}, 'w').write('x')\n", marker.display().to_string()),
+    )
+    .expect("写入 install");
+
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "python"
+exec = "scripts/install.py"
+verify = "scripts/verify.py"
+"#,
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    let ctx =
+        StepContext::new("test".into(), usb, dir.path().join("state")).expect("创建步骤上下文");
+
+    step.restore(&ctx).expect("跳过");
+    assert!(!marker.exists(), "verify 通过时不应执行 install");
+}
+
+/// `python` 在 verify 失败时应当执行 exec。
+#[test]
+fn python_action_runs_exec_when_verify_fails() {
+    let dir = scratch("python-run");
+    let usb = dir.path().join("usb");
+    let marker = dir.path().join("marker");
+
+    fs::create_dir_all(usb.join("scripts")).expect("创建脚本目录");
+    fs::write(usb.join("scripts/verify.py"), "import sys\nsys.exit(1)\n").expect("写入 verify");
+    fs::write(
+        usb.join("scripts/install.py"),
+        format!("open({:?}, 'w').write('x')\n", marker.display().to_string()),
+    )
+    .expect("写入 install");
+
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "python"
+exec = "scripts/install.py"
+verify = "scripts/verify.py"
+"#,
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    let ctx =
+        StepContext::new("test".into(), usb, dir.path().join("state")).expect("创建步骤上下文");
+
+    step.restore(&ctx).expect("执行");
+    assert!(marker.exists(), "verify 失败时应当执行 install");
+}
+
+/// `manual-check` 在已确认时应当直接跳过，不再读取 stdin。
+#[test]
+fn manual_check_skips_when_confirmed() {
+    let dir = scratch("manual");
+    let state_dir = dir.path().join("state");
+    fs::create_dir_all(&state_dir).expect("创建状态目录");
+    fs::write(state_dir.join("confirmed"), "yes\n").expect("写入确认标记");
+
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "manual-check"
+prompt = "请确认"
+"#,
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    let ctx = StepContext::new("test".into(), dir.path().to_path_buf(), state_dir)
+        .expect("创建步骤上下文");
+
+    step.restore(&ctx).expect("已确认应跳过");
+}
+
+/// 主机名应当可读。
+#[test]
+fn current_hostname_is_readable() {
+    let name = fedora_setup::current_hostname().expect("读取主机名");
+    assert!(!name.is_empty(), "主机名不应为空");
+}
+
+/// 步骤输出应当同时回显到终端并写入 `out` 文件。
+#[test]
+fn step_context_tees_output_to_file() {
+    let dir = scratch("ctx");
+    let state_dir = dir.path().join("state");
+    let ctx = StepContext::new("test".into(), dir.path().to_path_buf(), state_dir.clone())
+        .expect("创建步骤上下文");
+
+    let mut cmd = std::process::Command::new("echo");
+    cmd.arg("hello-tee");
+    let status = ctx.run(&mut cmd).expect("运行命令");
+    assert!(status.success());
+
+    let out = fs::read_to_string(state_dir.join("out")).expect("读取 out");
+    assert!(out.contains("hello-tee"), "out 应包含命令输出：{out}");
 }

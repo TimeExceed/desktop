@@ -2,7 +2,8 @@
 
 use anyhow::Context as _;
 use clap::{Arg, Command, crate_version, value_parser};
-use fedora_setup::{Policy, copy_file, repo_root};
+use fedora_setup::backup::*;
+use fedora_setup::*;
 use log::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -76,7 +77,7 @@ impl Cli {
             }
         }
 
-        copy_file(&self.policy_file, &self.backup_dir.join("policy.toml"))?;
+        backup_file(&self.policy_file, &self.backup_dir.join("policy.toml"))?;
         info!(target: "main", "复制 `policy.toml`");
 
         copy_restore_binary(&self.backup_dir)?;
@@ -96,7 +97,7 @@ fn copy_restore_binary(backup_dir: &Path) -> anyhow::Result<()> {
     }
 
     let dst = backup_dir.join("restore");
-    copy_file(&restore, &dst).context("复制恢复器失败")?;
+    backup_file(&restore, &dst).context("复制恢复器失败")?;
     info!(target: "main", "复制 `{}`", restore.display());
     Ok(())
 }

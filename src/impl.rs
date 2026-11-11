@@ -1,31 +1,44 @@
-//! 与策略无关的文件操作，以及每种动作的备份实现。
+//! 与策略无关的文件操作，以及单个步骤的执行上下文。
 
 use anyhow::Context as _;
+use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::Path;
+use std::process::Command;
 
-/// policy.toml 所在目录，即策略资产（脚本、patch）的根。
-pub fn repo_root(policy_path: &Path) -> PathBuf {
-    policy_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or(Path::new("."))
-        .to_path_buf()
-}
+/// 计算文件的 SHA-256（十六进制小写）。
+pub fn sha256_file(path: &Path) -> anyhow::Result<String> {
+    let mut file = fs::File::open(path).with_context(|| format!("打开 {} 失败", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
 
-/// 复制普通文件，并保留权限位。
-pub fn copy_file(src: &Path, dst: &Path) -> anyhow::Result<()> {
-    let meta = fs::metadata(src).with_context(|| format!("无法读取 {}", src.display()))?;
-    anyhow::ensure!(meta.is_file(), "不是普通文件：{}", src.display());
-
-    if let Some(parent) = dst.parent() {
-        fs::create_dir_all(parent).with_context(|| format!("创建 {} 失败", parent.display()))?;
+    loop {
+        let n = file
+            .read(&mut buf)
+            .with_context(|| format!("读取 {} 失败", path.display()))?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
     }
 
-    fs::copy(src, dst)
-        .with_context(|| format!("复制 {} → {} 失败", src.display(), dst.display()))?;
-    fs::set_permissions(dst, meta.permissions())
-        .with_context(|| format!("设置 {} 权限失败", dst.display()))?;
+    let digest = hasher.finalize();
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
 
-    Ok(())
+/// 读取当前静态主机名。
+pub fn current_hostname() -> anyhow::Result<String> {
+    let output = Command::new("hostnamectl")
+        .arg("--static")
+        .output()
+        .context("执行 hostnamectl --static 失败")?;
+
+    anyhow::ensure!(
+        output.status.success(),
+        "hostnamectl --static 失败（{}）",
+        output.status
+    );
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
