@@ -27,6 +27,12 @@ pub fn sha256_file(path: &Path) -> anyhow::Result<String> {
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
+/// 计算一段字节的 SHA-256（十六进制小写）。
+pub fn sha256_bytes(data: &[u8]) -> String {
+    let digest = Sha256::digest(data);
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 /// 读取当前静态主机名。
 pub fn current_hostname() -> anyhow::Result<String> {
     let output = Command::new("hostnamectl")

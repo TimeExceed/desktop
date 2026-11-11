@@ -191,7 +191,9 @@ impl Action {
         match self {
             // 用户数据：从系统目标路径收进 U 盘，保持 files 里的相对路径。
             Action::CopyFiles {
-                dest_dir, files, ..
+                dest_dir,
+                files,
+                run_as_root,
             } => {
                 for file in files {
                     let base = Path::new(file)
@@ -199,7 +201,11 @@ impl Action {
                         .with_context(|| format!("无法从 {file} 取文件名"))?;
                     let src = dest_dir.join(base);
                     let dst = backup_dir.join(file);
-                    backup_file(&src, &dst)?;
+                    if *run_as_root {
+                        backup_file_as_root(&src, &dst)?;
+                    } else {
+                        backup_file(&src, &dst)?;
+                    }
                     info!(target: log_target, "{} → {}", src.display(), dst.display());
                 }
             }
