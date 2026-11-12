@@ -1,0 +1,337 @@
+$schema: https://json-schema.org/draft/2020-12/schema
+description: >-
+  陶大个人使用的系统配置备份、恢复程序的策略文件的schema。
+  本schema定义的策略站在恢复程序的视角，即需要做什么才能恢复系统配置。
+  备份器需要转换视角方才可用。
+  如将一个文件从甲处备份到乙处。
+  本schema的定义的策略文件会说：从乙处复制某某文件到甲处，此即恢复器视角。
+  而备份器需要理解，备份动作是从甲处复制某某文件到乙处。
+type: object
+properties:
+  tasks:
+    description: |
+      依次执行每个任务的每个步骤。若中间有任何一个步骤失败，则恢复程序中止。
+    type: array
+    items:
+      $ref: "#/$defs/task"
+    minItems: 1
+required:
+- tasks
+additionalProperties: false
+
+$defs:
+  task:
+    type: object
+    properties:
+      id:
+        description: 用于标定一个任务唯一标识。
+        type: string
+      display-name:
+        description: 给用户看的任务名称。
+        type: string
+      steps:
+        description: 完成该任务所需要的步骤。每个步骤本身要求能够幂等，也有检查是否完成的内置能力。
+        type: array
+        items:
+          $ref: "#/$defs/action"
+        minItems: 1
+    required:
+    - id
+    - display-name
+    - steps
+    additionalProperties: false
+
+  action:
+    oneOf:
+    - $ref: "#/$defs/dnf-install"
+    - $ref: "#/$defs/set-hostname"
+    - $ref: "#/$defs/dnf-repo"
+    - $ref: "#/$defs/reboot"
+    - $ref: "#/$defs/copy-files"
+    - $ref: "#/$defs/manual-check"
+    - $ref: "#/$defs/patch-file"
+    - $ref: "#/$defs/soft-link"
+    - $ref: "#/$defs/update-fc-cache"
+    - $ref: "#/$defs/mount"
+
+  dnf-install:
+    description: |
+      使用 dnf 安装一批包。
+    type: object
+    properties:
+      id:
+        const: dnf-install
+      packages:
+        description: 包名
+        type: array
+        items:
+          type: string
+      local-rpms:
+        description: |
+          磁盘上 rpm 的绝对路径列表。
+          备份器把它复制到恢复器所在目录（文件名不变）；
+          恢复器先复制回原路径，再执行 dnf install。
+        type: array
+        items:
+          type: string
+      exclude:
+        description: |
+          传给 dnf 的 --exclude 参数，用于排除特定的包。
+        type: array
+        items:
+          type: string
+      setopt:
+        description: |
+          传给 dnf 的 --setopt 参数，形如 key=value。
+        type: array
+        items:
+          type: string
+      allowerasing:
+        description: |
+          允许 dnf 移除冲突的包，用于替换 ffmpeg-free 这类场景。
+        type: boolean
+        default: false
+    required:
+    - id
+    anyOf:
+    - required:
+      - packages
+    - required:
+      - local-rpms
+    additionalProperties: false
+
+  set-hostname:
+    description: 更改主机名
+    type: object
+    properties:
+      id:
+        const: set-hostname
+      hostname:
+        type: string
+        format: hostname
+    required:
+    - id
+    - hostname
+    additionalProperties: false
+
+  dnf-repo:
+    description: |
+      启用第三方 dnf 仓库（幂等）。
+
+      两种接入方式，任选其一：
+      - 直接配置：`repo-id` + `baseurl`（可选 `gpgkey`），
+        恢复器写入 /etc/yum.repos.d/<repo-id>.repo。
+      - 直接的 release rpm：`repo-id` + `release-rpms`，
+        恢复器逐个安装这些 URL（可含 $releasever）。
+    type: object
+    properties:
+      id:
+        const: dnf-repo
+      repo-id:
+        description: 仓库标识，例如 code、rpmfusion。
+        type: string
+      baseurl:
+        description: 仓库地址，可含 $releasever（直接配置方式使用）。
+        type: string
+      gpgkey:
+        description: GPG key 地址（直接配置方式使用）。
+        type: string
+      release-rpms:
+        description: 直接安装的 release rpm URL 列表，可含 $releasever。
+        type: array
+        items:
+          type: string
+    required:
+    - id
+    - repo-id
+    oneOf:
+    - required:
+      - baseurl
+    - required:
+      - release-rpms
+    additionalProperties: false
+
+  reboot:
+    description: |
+      重启机器
+
+      若恢复器检测到重启已经完成，则本步骤视为成功并继续后续步骤，而不是再次重启。
+      如 `#/$defs/task/properties/steps/description` 中所述：“每个步骤本身……有检查是否完成的内置能力”。
+    type: object
+    properties:
+      id:
+        const: reboot
+      prompt:
+        description: 重启之前告知用户“将要重启”以及其理由。
+        type: string
+      delay:
+        description: 等待一段时间，以便用户阅读提示词以及保存自己的工作。以秒为单位。
+        type: number
+        exclusiveMinimum: 0
+        default: 30
+    required:
+    - id
+    additionalProperties: false
+
+  copy-files:
+    description: |
+      复制文件到指定目录下。
+
+      - 所复制文件，其名保留，而其目录则忽略。
+      - 不保留目录结构，需要子目录时为每个目录单独定义动作。
+      - 目标不存在或内容不同时，复制并覆盖；内容相同时视为已完成。
+    type: object
+    properties:
+      id:
+        const: copy-files
+      dest-dir:
+        description: 复制的目标目录。必须是绝对路径。若此目录不存在则创建。
+        type: string
+      files:
+        description: 所需复制的文件。必须是相对恢复器的相对路径。其basename必须唯一。
+        type: array
+        items:
+          type: string
+      run-as-root:
+        description: 是否以 root 身份执行
+        type: boolean
+        default: false
+    required:
+    - id
+    - dest-dir
+    - files
+    additionalProperties: false
+
+  manual-check:
+    description: |
+      人工验证。
+
+      有一些动作需要人工确认是否生效。
+      确认之后恢复流程继续。
+      若用户否认，则报错退出。
+    type: object
+    properties:
+      id:
+        const: manual-check
+      prompt:
+        description: 告知用户验证什么
+        type: string
+    required:
+    - id
+    - prompt
+    additionalProperties: false
+
+  patch-file:
+    description: |
+      给目标文件打一个 patch。
+
+      - 恢复器：`patch -R --dry-run`（或语义等价物）成功则视为已打上，跳过；
+        否则先把 `dest` 覆盖到 `backup`，再应用 `patch`。
+      - 备份器：用 `diff backup dest`（或语义等价物）生成 patch 文件，
+        路径取自 `patch` 字段；`backup` 不存在则报错。
+    type: object
+    properties:
+      id:
+        const: patch-file
+      patch:
+        description: patch 文件。必须是相对恢复器的相对路径。
+        type: string
+      dest:
+        description: 需打上 patch 的文件。必须是绝对路径。若此文件不存在则报错退出。
+        type: string
+      backup:
+        description: |
+          备份文件，即打上 patch 之前的 `dest` 文件。
+
+          - 必须是绝对路径。且不在 U 盘上（但恢复器和备份器不一定会检查，应由用户自己保证）。
+          - 对于恢复器，覆盖此文件（但若 patch 已经打上，则不作此动作）。
+          - 对于备份器，此文件若不存在则报错。所以首次使用备份器前，用户应手工准备好此文件。
+        type: string
+      run-as-root:
+        description: 是否以 root 身份执行
+        type: boolean
+        default: false
+    required:
+    - id
+    - patch
+    - dest
+    - backup
+    additionalProperties: false
+
+  update-fc-cache:
+    description: |
+      刷新字体缓存，等价于 `fc-cache -fv`。
+    type: object
+    properties:
+      id:
+        const: update-fc-cache
+    required:
+    - id
+    additionalProperties: false
+
+  mount:
+    description: |
+      自动挑选一块容量足够、且不承载系统挂载点的数据分区，
+      写入 `/etc/fstab` 并挂载到指定挂载点。
+    type: object
+    properties:
+      id:
+        const: mount
+      mount-point:
+        description: 挂载点，必须是绝对路径
+        type: string
+        pattern: ^/
+      min-size-gb:
+        description: 候选分区的最小容量（GiB）
+        type: integer
+        minimum: 1
+        default: 100
+      options:
+        description: |
+          fstab 挂载选项。省略时按文件系统自动选择：
+          btrfs 用 `defaults,noatime,compress=zstd`，其余用 `defaults,noatime`。
+        type: array
+        items:
+          type: string
+    required:
+    - id
+    - mount-point
+    additionalProperties: false
+
+  soft-link:
+    description: |
+      创建一个软链接。
+
+      - 必须是硬盘到硬盘，不可以将恢复用u盘上的内容软链出去。
+        但本动作不会验证这一点，需要用户注意。
+      - 本动作不管 `src` 本身的恢复。
+        若该内容需要恢复，应由其他动作提供。
+    type: object
+    properties:
+      id:
+        const: soft-link
+      dest:
+        description: |
+          软链所在的位置。
+
+          - 必须是一个绝对路径，包含链接名。
+          - 若不存在则创建。若其父目录不存在也一样会递归创建。
+          - 若此路径已有软链并指向 `src`，则视为已完成本动作；
+            若指向其他位置，则报错退出。
+          - 若此路径已有其他文件或目录，则报错退出。
+        type: string
+      src:
+        description: |
+          被链的文件或目录。
+
+          - 可以是绝对路径，也可以是相对 `dest` 父目录的相对路径。
+          - 若该路径不存在，则报错退出。
+      run-as-root:
+        description: 是否以 root 身份执行
+        type: boolean
+        default: false
+    required:
+    - id
+    - dest
+    - src
+    additionalProperties: false

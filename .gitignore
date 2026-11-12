@@ -1,0 +1,4 @@
+/.codegraph/
+/.reasonix/
+/target/
+**/*.py[co]
