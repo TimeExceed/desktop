@@ -125,8 +125,8 @@ display-name = "安装专利编解码器"
 id = "dnf-repo"
 repo-id = "rpmfusion"
 release-rpms = [
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm",
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm",
+    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-45.noarch.rpm",
+    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-45.noarch.rpm",
 ]
 
 [[tasks.steps]]
@@ -397,6 +397,12 @@ files = [
     "dev/.gitconfig",
 ]
 
+[[tasks.steps]]
+id = "reboot"
+prompt = """
+重启，以使对 rust 的改动生效。
+"""
+
 
 [[tasks]]
 id = "ghostty"
@@ -514,3 +520,4 @@ files = [
     "misc/id_ed25519",
     "misc/id_ed25519.pub",
 ]
+
