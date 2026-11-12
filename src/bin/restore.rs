@@ -4,8 +4,7 @@
 //! 因此不需要任何参数；保留 clap 只是为了 `--help` 与 `--version`。
 //!
 //! 执行每个步骤前，框架会在 `~/.local/state/setup/{task}/{step-index}-{step-id}`
-//! 下准备状态目录，并把该步骤子进程的 stdout/stderr 写进其中的 `out` 与 `err`
-//! （同时回显到终端，以免藏住 `sudo` 的密码提示）。
+//! 下准备状态目录。步骤内启动的子进程直接继承终端，`sudo` 的密码提示因此可见。
 
 use anyhow::Context as _;
 use clap::{Command, crate_version};

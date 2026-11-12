@@ -36,6 +36,12 @@ id = "no-beep"
 display-name = "关闭哔哔叫"
 
 [[tasks.steps]]
+id = "dnf-install"
+packages = [
+    "patch",
+]
+
+[[tasks.steps]]
 id = "patch-file"
 dest = "/etc/lightdm/lightdm.conf"
 backup = "/etc/lightdm/lightdm.conf.bak"
@@ -119,8 +125,8 @@ display-name = "安装专利编解码器"
 id = "dnf-repo"
 repo-id = "rpmfusion"
 release-rpms = [
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$releasever.noarch.rpm",
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$releasever.noarch.rpm",
+    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm",
+    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm",
 ]
 
 [[tasks.steps]]
@@ -188,7 +194,7 @@ files = [
 id = "copy-files"
 dest-dir = "/home/taoda/.local/share/notes/便笺"
 files = [
-    "xfce/notes/便笺 1",
+    "xfce/notes/Note 1",
 ]
 
 [[tasks.steps]]
@@ -397,15 +403,25 @@ id = "ghostty"
 display-name = "Ghostty 终端"
 
 [[tasks.steps]]
-id = "dnf-repo"
-repo-id = "copr:copr.fedorainfracloud.org:scottames:ghostty"
-baseurl = "https://download.copr.fedorainfracloud.org/results/scottames/ghostty/fedora-$releasever-$basearch/"
-gpgkey = "https://download.copr.fedorainfracloud.org/results/scottames/ghostty/pubkey.gpg"
+id = "copy-files"
+dest-dir = "/usr/local/bin/"
+files = [
+    "ghostty/ghostty",
+]
+run-as-root = true
 
 [[tasks.steps]]
-id = "dnf-install"
-packages = [
-    "ghostty",
+id = "copy-files"
+dest-dir = "/home/taoda/.local/share/applications"
+files = [
+    "ghostty/com.mitchellh.ghostty.desktop",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.local/share/icons/hicolor/256x256"
+files = [
+    "ghostty/com.mitchellh.ghostty.png",
 ]
 
 [[tasks.steps]]
@@ -433,7 +449,7 @@ run-as-root = true
 [[tasks.steps]]
 id = "dnf-install"
 local-rpms = [
-    "/home/taoda/下载/ReasonixStudio-linux-amd64.rpm",
+    "/home/taoda/Downloads/ReasonixStudio-linux-amd64.rpm",
 ]
 
 [[tasks.steps]]
@@ -487,4 +503,14 @@ id = "copy-files"
 dest-dir = "/home/taoda/.local/share/applications"
 files = [
     "misc/qqmusic.desktop",
+]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/.ssh"
+files = [
+    "misc/id_ecdsa",
+    "misc/id_ecdsa.pub",
+    "misc/id_ed25519",
+    "misc/id_ed25519.pub",
 ]

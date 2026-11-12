@@ -162,7 +162,8 @@ Accepted
 - **完成判定写在动作内部**：
   如 `dnf-installed` 用 `rpm -q` / `dnf group info`，`patch-file` 用反向 dry-run，`reboot` 用 `boot_id` 比较，`manual-check` 用状态文件；
 - **错误统一走 `anyhow`**：动作返回 `Result`，恢复器在边界处打印完整错误链；
-- **输出统一走 `StepContext::run`**：子进程的 stdout/stderr 同时回显终端并写入步骤状态目录。
+- **输出统一走 `StepContext::run`**：子进程的 stdout/stderr 直接继承终端，不重定向，
+  `sudo` 的密码提示因此可见。
 
 已经落地的替换：
 
@@ -217,8 +218,10 @@ Mitigations:
 ## Links
 
 - [policy.schema.yaml](../policy.schema.yaml) - 动作类型的定义
-- [src/policy.rs](../../src/policy.rs) - `Action` 枚举与 `backup` / `restore` 实现
-- [src/restore.rs](../../src/restore.rs) - `StepContext` 与恢复器工具函数
+- [src/policy.rs](../../src/policy.rs) - `Action` 枚举与策略校验
+- [src/backup.rs](../../src/backup.rs) - 动作的备份实现
+- [src/restore.rs](../../src/restore.rs) - 动作的恢复实现、`StepContext` 与恢复器工具函数
+- [src/run_as.rs](../../src/run_as.rs) - `RunAs`，以及 `same_content`、`restore_file` 等按身份执行的工具
 
 ## More Information
 

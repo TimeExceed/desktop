@@ -1,20 +1,356 @@
-//! 与策略无关的、仅用于恢复器的工具
+//! 恢复器：动作的恢复实现与工具函数
 
-use crate::*;
+use crate::{RunAs::*, *};
 use anyhow::Context as _;
 use log::info;
 use serde::Deserialize;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::thread;
+use std::thread::sleep;
+use std::time::Duration;
+
+impl Action {
+    /// 把该动作需要恢复的数据从 U 盘写回系统。
+    pub fn restore(&self, ctx: &StepContext) -> anyhow::Result<()> {
+        match self {
+            Action::CopyFiles {
+                dest_dir,
+                files,
+                run_as_root,
+            } => {
+                let run_as = if *run_as_root { RunAsRoot } else { RunAsNormal };
+                for file in files {
+                    let base = Path::new(file)
+                        .file_name()
+                        .with_context(|| format!("无法从 {file} 取文件名"))?;
+                    let src = ctx.backup_dir.join(file);
+                    let dst = dest_dir.join(base);
+
+                    // 幂等：内容已一致就跳过。
+                    if run_as.same_content(&src, &dst)? {
+                        info!(target: &ctx.log_target, "{} 已是最新", dst.display());
+                        continue;
+                    }
+
+                    run_as.restore_file(&src, &dst)?;
+                    info!(target: &ctx.log_target, "{} → {}", src.display(), dst.display());
+                }
+            }
+
+            // 安装 dnf 包，或安装回传到 U 盘的本地 rpm。
+            Action::DnfInstall {
+                packages,
+                local_rpms,
+                exclude,
+                setopt,
+                allowerasing,
+            } => {
+                // 先把本地 rpm 恢复到策略里的原路径。
+                for rpm in local_rpms {
+                    let base = rpm
+                        .file_name()
+                        .with_context(|| format!("无法从 {} 取文件名", rpm.display()))?;
+                    let src = ctx.backup_dir.join(base);
+
+                    if !RunAsNormal.same_content(&src, rpm)? {
+                        RunAsNormal.restore_file(&src, rpm)?;
+                        info!(target: &ctx.log_target, "{} → {}", src.display(), rpm.display());
+                    }
+                }
+
+                // 只把尚未安装的包交给 dnf。
+                let mut pending: Vec<String> = Vec::new();
+                for pkg in packages {
+                    if !dnf_installed(pkg)? {
+                        pending.push(pkg.clone());
+                    }
+                }
+                for rpm in local_rpms {
+                    pending.push(rpm.to_string_lossy().into_owned());
+                }
+
+                if pending.is_empty() {
+                    info!(target: &ctx.log_target, "所需的包均已安装");
+                } else {
+                    let mut cmd = Command::new("sudo");
+                    cmd.arg("dnf").arg("install").arg("-y");
+
+                    for s in setopt {
+                        cmd.arg(format!("--setopt={s}"));
+                    }
+                    for e in exclude {
+                        cmd.arg(format!("--exclude={e}"));
+                    }
+                    if *allowerasing {
+                        cmd.arg("--allowerasing");
+                    }
+
+                    cmd.args(&pending);
+
+                    let status = ctx
+                        .run(&mut cmd)
+                        .with_context(|| format!("执行 dnf install 失败：{}", pending.join(" ")))?;
+                    anyhow::ensure!(
+                        status.success(),
+                        "dnf install 失败（{status}）：{}",
+                        pending.join(" ")
+                    );
+
+                    info!(target: &ctx.log_target, "安装 {}", pending.join(" "));
+                }
+            }
+
+            // 设置静态主机名。
+            Action::SetHostname { hostname } => {
+                let current = current_hostname()?;
+
+                if current == *hostname {
+                    info!(target: &ctx.log_target, "主机名已是 {hostname}");
+                } else {
+                    let mut cmd = Command::new("sudo");
+                    cmd.arg("hostnamectl").arg("set-hostname").arg(hostname);
+
+                    let status = ctx
+                        .run(&mut cmd)
+                        .with_context(|| format!("执行 hostnamectl 失败：{hostname}"))?;
+                    anyhow::ensure!(status.success(), "设置主机名失败（{status}）：{hostname}");
+
+                    info!(target: &ctx.log_target, "主机名 {current} → {hostname}");
+                }
+            }
+
+            // 重启系统；重启后再次运行恢复器即可从下一步继续。
+            Action::Reboot { prompt, delay } => {
+                let boot_id_file = ctx.state_dir.join("boot-id");
+                let current = boot_id()?;
+
+                // 状态文件记录的是上次请求重启时的 boot-id；
+                // 与当前不同，说明重启已经发生过。
+                if let Ok(prev) = fs::read_to_string(&boot_id_file)
+                    && prev.trim() != current
+                {
+                    info!(target: &ctx.log_target, "重启已完成");
+                    return Ok(());
+                }
+
+                fs::write(&boot_id_file, &current)
+                    .with_context(|| format!("写入 {} 失败", boot_id_file.display()))?;
+
+                if let Some(p) = prompt {
+                    info!(target: &ctx.log_target, "{p}");
+                }
+
+                let delay = delay.unwrap_or(30.0);
+                if delay > 0.0 {
+                    info!(target: &ctx.log_target, "{delay} 秒后重启");
+                    sleep(Duration::from_secs_f64(delay));
+                }
+
+                let mut cmd = Command::new("sudo");
+                cmd.arg("systemctl").arg("reboot");
+
+                let status = ctx
+                    .run(&mut cmd)
+                    .with_context(|| "执行 systemctl reboot 失败")?;
+                anyhow::ensure!(status.success(), "重启命令失败（{status}）");
+
+                info!(target: &ctx.log_target, "已请求重启，等待系统关闭…");
+
+                // 等系统杀掉本进程；正常情况下不会走到 loop 之后。
+                loop {
+                    sleep(Duration::from_secs(3600));
+                }
+            }
+
+            // 人工确认：显示提示，用户否认即中止恢复。
+            Action::ManualCheck { prompt } => {
+                let confirmed_file = ctx.state_dir.join("confirmed");
+
+                // 幂等：确认过就不再打扰。
+                if confirmed_file.exists() {
+                    info!(target: &ctx.log_target, "已确认过，跳过");
+                    return Ok(());
+                }
+
+                info!(target: &ctx.log_target, "{prompt}");
+                print!("是否已完成？[y/N] ");
+                io::stdout().flush().context("刷新标准输出失败")?;
+
+                let mut answer = String::new();
+                io::stdin()
+                    .read_line(&mut answer)
+                    .context("读取标准输入失败")?;
+
+                match answer.trim().to_ascii_lowercase().as_str() {
+                    "y" | "yes" => {
+                        fs::write(&confirmed_file, "yes\n")
+                            .with_context(|| format!("写入 {} 失败", confirmed_file.display()))?;
+                        info!(target: &ctx.log_target, "已确认");
+                    }
+                    _ => anyhow::bail!("用户未确认：{prompt}"),
+                }
+            }
+
+            // 添加 dnf 仓库：安装 release rpm，或写入 .repo 文件。
+            Action::DnfRepo {
+                repo_id,
+                baseurl,
+                gpgkey,
+                release_rpms,
+            } => {
+                // 1. release-rpms：直接安装仓库 rpm（$releasever 交给 dnf 展开）。
+                if !release_rpms.is_empty() && !repo_enabled(repo_id)? {
+                    let mut cmd = std::process::Command::new("sudo");
+                    cmd.arg("dnf").arg("install").arg("-y").args(release_rpms);
+
+                    let status = ctx
+                        .run(&mut cmd)
+                        .with_context(|| format!("安装仓库 rpm 失败：{repo_id}"))?;
+                    anyhow::ensure!(status.success(), "安装仓库 rpm 失败（{status}）：{repo_id}");
+
+                    info!(target: &ctx.log_target, "已添加仓库 {repo_id}");
+                }
+
+                // 2. baseurl：写 /etc/yum.repos.d/<repo-id>.repo。
+                if let Some(url) = baseurl {
+                    let mut content = format!(
+                        "[{repo_id}]\nname={repo_id}\nbaseurl={url}\nenabled=1\ngpgcheck=1\n"
+                    );
+                    if let Some(key) = gpgkey {
+                        content.push_str(&format!("gpgkey={key}\n"));
+                    }
+
+                    let repo_file =
+                        PathBuf::from("/etc/yum.repos.d").join(format!("{repo_id}.repo"));
+                    let staged = ctx.state_dir.join(format!("{repo_id}.repo"));
+                    fs::write(&staged, content)
+                        .with_context(|| format!("写入 {} 失败", staged.display()))?;
+
+                    // 与写入侧一致用 root 读取：/etc/yum.repos.d 下可能已有
+                    // 普通用户读不到的旧文件。
+                    if RunAsRoot.same_content(&staged, &repo_file)? {
+                        info!(target: &ctx.log_target, "仓库配置已是最新：{repo_id}");
+                    } else {
+                        RunAsRoot.restore_file(&staged, &repo_file)?;
+                        info!(target: &ctx.log_target, "已写入 {}", repo_file.display());
+                    }
+                }
+            }
+
+            // 给目标文件打 patch；已打过就跳过。
+            Action::PatchFile {
+                patch,
+                dest,
+                backup,
+                run_as_root,
+            } => {
+                let run_as = if *run_as_root { RunAsRoot } else { RunAsNormal };
+                let patch_file = ctx.backup_dir.join(patch);
+
+                // 反向 dry-run 成功说明补丁已经打上。
+                if run_as.patch_applied(&patch_file, dest)? {
+                    info!(target: &ctx.log_target, "patch 已应用：{}", dest.display());
+                    return Ok(());
+                }
+
+                // 刷新基准：把当前文件存一份到 backup。
+                run_as
+                    .restore_file(dest, backup)
+                    .with_context(|| format!("备份基准失败：{}", backup.display()))?;
+
+                // 打 patch。
+                let mut cmd = run_as.command("patch");
+                cmd.arg("-i").arg(&patch_file).arg(dest);
+
+                let status = ctx
+                    .run(&mut cmd)
+                    .with_context(|| format!("打 patch 失败：{}", dest.display()))?;
+                anyhow::ensure!(
+                    status.success(),
+                    "打 patch 失败（{status}）：{}",
+                    dest.display()
+                );
+
+                info!(target: &ctx.log_target, "已打 patch：{}", dest.display());
+            }
+
+            // 创建软链接：不存在则创建，已指向目标视为完成，其余情况报错。
+            Action::SoftLink {
+                dest,
+                src,
+                run_as_root,
+            } => {
+                let run_as = if *run_as_root { RunAsRoot } else { RunAsNormal };
+
+                match run_as.link_target(dest)? {
+                    Some(current) if current == *src => {
+                        info!(target: &ctx.log_target, "软链接已存在：{}", dest.display());
+                        return Ok(());
+                    }
+                    Some(current) => anyhow::bail!(
+                        "{} 已指向 {}，与期望的 {} 不符",
+                        dest.display(),
+                        current.display(),
+                        src.display()
+                    ),
+                    None => {}
+                }
+
+                // 父目录不存在就先建出来。
+                if let Some(parent) = dest.parent()
+                    && !run_as.exists(parent)?
+                {
+                    run_as.make_dirs(parent)?;
+                }
+
+                let mut cmd = run_as.command("ln");
+                cmd.arg("-s").arg(src).arg(dest);
+
+                let status = ctx
+                    .run(&mut cmd)
+                    .with_context(|| format!("创建软链接失败：{}", dest.display()))?;
+                anyhow::ensure!(
+                    status.success(),
+                    "创建软链接失败（{status}）：{} → {}",
+                    dest.display(),
+                    src.display()
+                );
+
+                info!(target: &ctx.log_target, "已创建软链接 {}", dest.display());
+            }
+
+            // 刷新字体缓存；fc-cache 本身幂等，直接执行。
+            Action::UpdateFcCache => {
+                let mut cmd = Command::new("sudo");
+                cmd.arg("fc-cache").arg("-fv");
+
+                let status = ctx.run(&mut cmd).with_context(|| "执行 fc-cache 失败")?;
+                anyhow::ensure!(status.success(), "fc-cache 失败（{status}）");
+
+                info!(target: &ctx.log_target, "已刷新字体缓存");
+            }
+
+            // 自动挑选数据分区，写入 fstab 并挂载。
+            Action::Mount {
+                mount_point,
+                min_size_gb,
+                options,
+            } => {
+                mount_disk(ctx, mount_point, *min_size_gb, options)?;
+            }
+        }
+
+        Ok(())
+    }
+}
 
 /// 单个步骤的执行上下文。
 ///
 /// 框架在执行每个步骤前准备好状态目录。
-/// 步骤内启动的子进程输出会**同时**转发到终端与状态目录下的 `out` / `err`：
-/// 必须保留终端连接，否则 `sudo` 的密码提示（走 stderr）就看不见了。
+/// 步骤内启动的子进程直接继承终端的 stdout/stderr，不重定向：
+/// 否则 `sudo` 的密码提示（走 stderr）就看不见了。
 pub struct StepContext {
     /// 日志前缀：`{task}/{step-index}-{step-id}`。
     pub log_target: String,
@@ -22,12 +358,10 @@ pub struct StepContext {
     pub backup_dir: PathBuf,
     /// 本步骤的状态目录。
     pub state_dir: PathBuf,
-    out: fs::File,
-    err: fs::File,
 }
 
 impl StepContext {
-    /// 创建状态目录以及 `out` / `err` 两个输出文件。
+    /// 创建状态目录。
     pub fn new(
         log_target: String,
         backup_dir: PathBuf,
@@ -36,79 +370,18 @@ impl StepContext {
         fs::create_dir_all(&state_dir)
             .with_context(|| format!("创建状态目录 {} 失败", state_dir.display()))?;
 
-        let out = fs::File::create(state_dir.join("out"))
-            .with_context(|| format!("创建 {} 失败", state_dir.join("out").display()))?;
-        let err = fs::File::create(state_dir.join("err"))
-            .with_context(|| format!("创建 {} 失败", state_dir.join("err").display()))?;
-
         Ok(Self {
             log_target,
             backup_dir,
             state_dir,
-            out,
-            err,
         })
     }
 
-    /// 执行命令：输出实时回显到终端，同时写入本步骤的 `out` / `err`。
+    /// 执行命令，stdout/stderr 直接继承终端（`sudo` 的密码提示因此可见）。
     pub fn run(&self, cmd: &mut Command) -> anyhow::Result<ExitStatus> {
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("启动子进程失败")?;
-
-        let stdout = child.stdout.take().context("获取子进程 stdout 失败")?;
-        let stderr = child.stderr.take().context("获取子进程 stderr 失败")?;
-
-        let out = self.out.try_clone().context("复制 stdout 句柄失败")?;
-        let err = self.err.try_clone().context("复制 stderr 句柄失败")?;
-
-        let t_out = thread::spawn(move || pump(stdout, io::stdout(), out));
-        let t_err = thread::spawn(move || pump(stderr, io::stderr(), err));
-
-        let status = child.wait().context("等待子进程失败")?;
-
-        t_out
-            .join()
-            .map_err(|_| anyhow::anyhow!("stdout 转发线程异常退出"))??;
-        t_err
-            .join()
-            .map_err(|_| anyhow::anyhow!("stderr 转发线程异常退出"))??;
-
+        let status = cmd.status().context("启动子进程失败")?;
         Ok(status)
     }
-}
-
-/// 把 `reader` 的内容同时写到终端与文件。
-fn pump<R: Read, W: Write>(mut reader: R, mut term: W, mut file: fs::File) -> io::Result<()> {
-    let mut buf = [0u8; 8 * 1024];
-
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-
-        term.write_all(&buf[..n])?;
-        term.flush()?;
-        file.write_all(&buf[..n])?;
-        file.flush()?;
-    }
-
-    Ok(())
-}
-
-/// 比较两个文件内容是否一致（用 SHA-256）；目标不存在时返回 `false`。
-pub fn same_content(src: &Path, dst: &Path) -> anyhow::Result<bool> {
-    if !dst
-        .try_exists()
-        .with_context(|| format!("无法访问 {}", dst.display()))?
-    {
-        return Ok(false);
-    }
-
-    Ok(sha256_file(src)? == sha256_file(dst)?)
 }
 
 /// 判断一个包或组是否已安装。
@@ -164,52 +437,6 @@ pub fn repo_enabled(repo_id: &str) -> anyhow::Result<bool> {
     Ok(text
         .lines()
         .any(|line| line.split_whitespace().next() == Some(repo_id)))
-}
-
-/// 判断 patch 是否已经应用到目标文件（反向 dry-run 成功即为已应用）。
-pub fn patch_applied(patch: &Path, dest: &Path) -> anyhow::Result<bool> {
-    let output = Command::new("patch")
-        .arg("-R")
-        .arg("--dry-run")
-        .arg("-i")
-        .arg(patch)
-        .arg(dest)
-        .output()
-        .with_context(|| format!("执行 patch 检查失败：{}", dest.display()))?;
-
-    Ok(output.status.success())
-}
-
-/// 用 `install`（必要时加 `sudo`）把备份文件恢复到目标位置。
-///
-/// `install -D` 会创建父目录，`-p` 保留源文件的时间戳与权限。
-pub fn restore_file(
-    src: &Path,
-    dst: &Path,
-    run_as_root: bool,
-    ctx: &StepContext,
-) -> anyhow::Result<()> {
-    let mut cmd = if run_as_root {
-        let mut c = Command::new("sudo");
-        c.arg("install");
-        c
-    } else {
-        Command::new("install")
-    };
-    cmd.arg("-D").arg("-p").arg(src).arg(dst);
-
-    let status = ctx
-        .run(&mut cmd)
-        .with_context(|| format!("执行 install 失败：{} → {}", src.display(), dst.display()))?;
-
-    anyhow::ensure!(
-        status.success(),
-        "install 失败（{status}）：{} → {}",
-        src.display(),
-        dst.display()
-    );
-
-    Ok(())
 }
 
 /// `lsblk --json` 输出的最小结构。
@@ -363,7 +590,8 @@ pub fn mount_disk(
             fs::write(&staged, content)
                 .with_context(|| format!("写入 {} 失败", staged.display()))?;
 
-            restore_file(&staged, Path::new("/etc/fstab"), true, ctx)
+            RunAsRoot
+                .restore_file(&staged, Path::new("/etc/fstab"))
                 .context("写入 /etc/fstab 失败")?;
             info!(target: &ctx.log_target, "已写入 fstab 条目：{point}");
         }
@@ -371,17 +599,11 @@ pub fn mount_disk(
 
     // 2. 挂载点目录。
     if !mount_point.exists() {
-        let mut cmd = Command::new("sudo");
-        cmd.arg("install").arg("-d").arg(mount_point);
-
-        let status = ctx.run(&mut cmd)?;
-        anyhow::ensure!(status.success(), "创建挂载点失败：{point}");
+        RunAsRoot.make_dirs(mount_point)?;
     }
 
     // 3. 挂载。
-    let mut cmd = Command::new("sudo");
-    cmd.arg("mount").arg(mount_point);
-    let status = ctx.run(&mut cmd)?;
+    let status = RunAsRoot.command("mount").arg(mount_point).status()?;
     anyhow::ensure!(status.success(), "挂载失败：{point}");
     info!(target: &ctx.log_target, "已挂载 {point}");
 

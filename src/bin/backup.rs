@@ -2,7 +2,7 @@
 
 use anyhow::Context as _;
 use clap::{Arg, Command, crate_version, value_parser};
-use fedora_setup::backup::*;
+use fedora_setup::backup::backup_file;
 use fedora_setup::*;
 use log::*;
 use std::fs;

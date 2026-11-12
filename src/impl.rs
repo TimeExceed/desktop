@@ -1,37 +1,7 @@
-//! 与策略无关的文件操作，以及单个步骤的执行上下文。
+//! 与策略无关的通用工具
 
 use anyhow::Context as _;
-use sha2::{Digest, Sha256};
-use std::fs;
-use std::io::Read;
-use std::path::Path;
 use std::process::Command;
-
-/// 计算文件的 SHA-256（十六进制小写）。
-pub fn sha256_file(path: &Path) -> anyhow::Result<String> {
-    let mut file = fs::File::open(path).with_context(|| format!("打开 {} 失败", path.display()))?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
-
-    loop {
-        let n = file
-            .read(&mut buf)
-            .with_context(|| format!("读取 {} 失败", path.display()))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-
-    let digest = hasher.finalize();
-    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
-}
-
-/// 计算一段字节的 SHA-256（十六进制小写）。
-pub fn sha256_bytes(data: &[u8]) -> String {
-    let digest = Sha256::digest(data);
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
-}
 
 /// 读取当前静态主机名。
 pub fn current_hostname() -> anyhow::Result<String> {

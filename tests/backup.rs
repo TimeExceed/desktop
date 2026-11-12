@@ -450,20 +450,3 @@ fn current_hostname_is_readable() {
     let name = fedora_setup::current_hostname().expect("读取主机名");
     assert!(!name.is_empty(), "主机名不应为空");
 }
-
-/// 步骤输出应当同时回显到终端并写入 `out` 文件。
-#[test]
-fn step_context_tees_output_to_file() {
-    let dir = scratch("ctx");
-    let state_dir = dir.path().join("state");
-    let ctx = StepContext::new("test".into(), dir.path().to_path_buf(), state_dir.clone())
-        .expect("创建步骤上下文");
-
-    let mut cmd = std::process::Command::new("echo");
-    cmd.arg("hello-tee");
-    let status = ctx.run(&mut cmd).expect("运行命令");
-    assert!(status.success());
-
-    let out = fs::read_to_string(state_dir.join("out")).expect("读取 out");
-    assert!(out.contains("hello-tee"), "out 应包含命令输出：{out}");
-}
