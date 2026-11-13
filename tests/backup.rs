@@ -260,6 +260,30 @@ fn repo_enabled_detects_fedora_repo() {
     );
 }
 
+/// release rpm 的安装检测：按包是否已安装判断，与 repo-id 无关。
+#[test]
+fn release_rpm_installed_detects_package() {
+    assert!(
+        release_rpm_installed(
+            "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-45.noarch.rpm"
+        )
+        .expect("检查 rpmfusion-free-release"),
+        "已安装的 release rpm 应当返回 true"
+    );
+    assert!(
+        release_rpm_installed(
+            "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-45.noarch.rpm"
+        )
+        .expect("检查 rpmfusion-nonfree-release"),
+        "已安装的 release rpm 应当返回 true"
+    );
+    assert!(
+        !release_rpm_installed("https://example.com/definitely-not-a-real-release-45.noarch.rpm")
+            .expect("检查不存在的 release rpm"),
+        "未安装的 release rpm 应当返回 false"
+    );
+}
+
 /// `patch-file` 应当能打上补丁，且重复执行是幂等的。
 #[test]
 fn patch_file_applies_and_is_idempotent() {

@@ -200,10 +200,24 @@ impl Action {
                 gpgkey,
                 release_rpms,
             } => {
-                // 1. release-rpms：直接安装仓库 rpm（$releasever 交给 dnf 展开）。
-                if !release_rpms.is_empty() && !repo_enabled(repo_id)? {
-                    let mut cmd = std::process::Command::new("sudo");
-                    cmd.arg("dnf").arg("install").arg("-y").args(release_rpms);
+                // 1. release-rpms：逐个安装仓库 rpm。
+                //    幂等性按包是否已安装判断：release rpm 建立的仓库名（如
+                //    rpmfusion-free）与 repo-id（rpmfusion）并不一致，
+                //    用 `dnf repolist` 匹配 repo-id 会永远判定未添加，因而重复安装。
+                let mut pending: Vec<&str> = vec![];
+                for url in release_rpms {
+                    if !release_rpm_installed(url)? {
+                        pending.push(url);
+                    }
+                }
+
+                if pending.is_empty() {
+                    if !release_rpms.is_empty() {
+                        info!(target: &ctx.log_target, "仓库 {repo_id} 已添加");
+                    }
+                } else {
+                    let mut cmd = Command::new("sudo");
+                    cmd.arg("dnf").arg("install").arg("-y").args(&pending);
 
                     let status = ctx
                         .run(&mut cmd)
@@ -411,6 +425,28 @@ pub fn dnf_installed(pkg: &str) -> anyhow::Result<bool> {
 
         Ok(output.status.success())
     }
+}
+
+/// 判断 release rpm 地址对应的包是否已经安装。
+///
+/// 地址形如 `.../rpmfusion-free-release-45.noarch.rpm`，不支持 `$releasever`
+/// 占位符。从文件名去掉 `.rpm` 与 `.arch` 后得到 `name-version[-release]`，
+/// 交给 `rpm -q` 查询。
+/// 地址解析不出包名时按“未安装”处理，交给 dnf 自行判断。
+pub fn release_rpm_installed(url: &str) -> anyhow::Result<bool> {
+    let Some(stem) = url
+        .rsplit('/')
+        .next()
+        .and_then(|base| base.split('?').next())
+        .and_then(|base| base.strip_suffix(".rpm"))
+    else {
+        return Ok(false);
+    };
+
+    // 去掉 `.arch`；`rpm -q` 接受 `name-version[-release]` 形式。
+    let query = stem.rsplit_once('.').map_or(stem, |(s, _)| s);
+
+    dnf_installed(query)
 }
 
 /// 读取本次启动的唯一标识；重启后会变化。

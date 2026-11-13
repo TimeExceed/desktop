@@ -122,7 +122,7 @@ $defs:
       - 直接配置：`repo-id` + `baseurl`（可选 `gpgkey`），
         恢复器写入 /etc/yum.repos.d/<repo-id>.repo。
       - 直接的 release rpm：`repo-id` + `release-rpms`，
-        恢复器逐个安装这些 URL（可含 $releasever）。
+        恢复器逐个安装这些 URL。
     type: object
     properties:
       id:
@@ -137,7 +137,7 @@ $defs:
         description: GPG key 地址（直接配置方式使用）。
         type: string
       release-rpms:
-        description: 直接安装的 release rpm URL 列表，可含 $releasever。
+        description: 直接安装的 release rpm URL 列表。
         type: array
         items:
           type: string
