@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -74,8 +74,8 @@ impl Action {
                 if pending.is_empty() {
                     info!(target: &ctx.log_target, "所需的包均已安装");
                 } else {
-                    let mut cmd = Command::new("sudo");
-                    cmd.arg("dnf").arg("install").arg("-y");
+                    let mut cmd = RunAsRoot.command("dnf");
+                    cmd.arg("install").arg("-y");
 
                     for s in setopt {
                         cmd.arg(format!("--setopt={s}"));
@@ -89,8 +89,8 @@ impl Action {
 
                     cmd.args(&pending);
 
-                    let status = ctx
-                        .run(&mut cmd)
+                    let status = cmd
+                        .status()
                         .with_context(|| format!("执行 dnf install 失败：{}", pending.join(" ")))?;
                     anyhow::ensure!(
                         status.success(),
@@ -114,11 +114,12 @@ impl Action {
                 if pending.is_empty() {
                     info!(target: &ctx.log_target, "所需的包均已卸载");
                 } else {
-                    let mut cmd = Command::new("sudo");
-                    cmd.arg("dnf").arg("remove").arg("-y").args(&pending);
-
-                    let status = ctx
-                        .run(&mut cmd)
+                    let status = RunAsRoot
+                        .command("dnf")
+                        .arg("remove")
+                        .arg("-y")
+                        .args(&pending)
+                        .status()
                         .with_context(|| format!("执行 dnf remove 失败：{}", pending.join(" ")))?;
                     anyhow::ensure!(
                         status.success(),
@@ -137,11 +138,11 @@ impl Action {
                 if current == *hostname {
                     info!(target: &ctx.log_target, "主机名已是 {hostname}");
                 } else {
-                    let mut cmd = Command::new("sudo");
-                    cmd.arg("hostnamectl").arg("set-hostname").arg(hostname);
-
-                    let status = ctx
-                        .run(&mut cmd)
+                    let status = RunAsRoot
+                        .command("hostnamectl")
+                        .arg("set-hostname")
+                        .arg(hostname)
+                        .status()
                         .with_context(|| format!("执行 hostnamectl 失败：{hostname}"))?;
                     anyhow::ensure!(status.success(), "设置主机名失败（{status}）：{hostname}");
 
@@ -176,11 +177,10 @@ impl Action {
                     sleep(Duration::from_secs_f64(delay));
                 }
 
-                let mut cmd = Command::new("sudo");
-                cmd.arg("systemctl").arg("reboot");
-
-                let status = ctx
-                    .run(&mut cmd)
+                let status = RunAsRoot
+                    .command("systemctl")
+                    .arg("reboot")
+                    .status()
                     .with_context(|| "执行 systemctl reboot 失败")?;
                 anyhow::ensure!(status.success(), "重启命令失败（{status}）");
 
@@ -244,11 +244,12 @@ impl Action {
                         info!(target: &ctx.log_target, "仓库 {repo_id} 已添加");
                     }
                 } else {
-                    let mut cmd = Command::new("sudo");
-                    cmd.arg("dnf").arg("install").arg("-y").args(&pending);
-
-                    let status = ctx
-                        .run(&mut cmd)
+                    let status = RunAsRoot
+                        .command("dnf")
+                        .arg("install")
+                        .arg("-y")
+                        .args(&pending)
+                        .status()
                         .with_context(|| format!("安装仓库 rpm 失败：{repo_id}"))?;
                     anyhow::ensure!(status.success(), "安装仓库 rpm 失败（{status}）：{repo_id}");
 
@@ -303,11 +304,12 @@ impl Action {
                     .with_context(|| format!("备份基准失败：{}", backup.display()))?;
 
                 // 打 patch。
-                let mut cmd = run_as.command("patch");
-                cmd.arg("-i").arg(&patch_file).arg(dest);
-
-                let status = ctx
-                    .run(&mut cmd)
+                let status = run_as
+                    .command("patch")
+                    .arg("-i")
+                    .arg(&patch_file)
+                    .arg(dest)
+                    .status()
                     .with_context(|| format!("打 patch 失败：{}", dest.display()))?;
                 anyhow::ensure!(
                     status.success(),
@@ -347,11 +349,12 @@ impl Action {
                     run_as.make_dirs(parent)?;
                 }
 
-                let mut cmd = run_as.command("ln");
-                cmd.arg("-s").arg(src).arg(dest);
-
-                let status = ctx
-                    .run(&mut cmd)
+                let status = run_as
+                    .command("ln")
+                    .arg("-s")
+                    .arg(src)
+                    .arg(dest)
+                    .status()
                     .with_context(|| format!("创建软链接失败：{}", dest.display()))?;
                 anyhow::ensure!(
                     status.success(),
@@ -365,10 +368,11 @@ impl Action {
 
             // 刷新字体缓存；fc-cache 本身幂等，直接执行。
             Action::UpdateFcCache => {
-                let mut cmd = Command::new("sudo");
-                cmd.arg("fc-cache").arg("-fv");
-
-                let status = ctx.run(&mut cmd).with_context(|| "执行 fc-cache 失败")?;
+                let status = RunAsRoot
+                    .command("fc-cache")
+                    .arg("-fv")
+                    .status()
+                    .with_context(|| "执行 fc-cache 失败")?;
                 anyhow::ensure!(status.success(), "fc-cache 失败（{status}）");
 
                 info!(target: &ctx.log_target, "已刷新字体缓存");
@@ -391,8 +395,6 @@ impl Action {
 /// 单个步骤的执行上下文。
 ///
 /// 框架在执行每个步骤前准备好状态目录。
-/// 步骤内启动的子进程直接继承终端的 stdout/stderr，不重定向：
-/// 否则 `sudo` 的密码提示（走 stderr）就看不见了。
 pub struct StepContext {
     /// 日志前缀：`{task}/{step-index}-{step-id}`。
     pub log_target: String,
@@ -417,12 +419,6 @@ impl StepContext {
             backup_dir,
             state_dir,
         })
-    }
-
-    /// 执行命令，stdout/stderr 直接继承终端（`sudo` 的密码提示因此可见）。
-    pub fn run(&self, cmd: &mut Command) -> anyhow::Result<ExitStatus> {
-        let status = cmd.status().context("启动子进程失败")?;
-        Ok(status)
     }
 }
 
