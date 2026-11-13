@@ -102,6 +102,34 @@ impl Action {
                 }
             }
 
+            // 移除 dnf 包；已卸载的包会跳过。
+            Action::DnfRemove { packages } => {
+                let mut pending: Vec<String> = Vec::new();
+                for pkg in packages {
+                    if dnf_installed(pkg)? {
+                        pending.push(pkg.clone());
+                    }
+                }
+
+                if pending.is_empty() {
+                    info!(target: &ctx.log_target, "所需的包均已卸载");
+                } else {
+                    let mut cmd = Command::new("sudo");
+                    cmd.arg("dnf").arg("remove").arg("-y").args(&pending);
+
+                    let status = ctx
+                        .run(&mut cmd)
+                        .with_context(|| format!("执行 dnf remove 失败：{}", pending.join(" ")))?;
+                    anyhow::ensure!(
+                        status.success(),
+                        "dnf remove 失败（{status}）：{}",
+                        pending.join(" ")
+                    );
+
+                    info!(target: &ctx.log_target, "移除 {}", pending.join(" "));
+                }
+            }
+
             // 设置静态主机名。
             Action::SetHostname { hostname } => {
                 let current = current_hostname()?;

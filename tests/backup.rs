@@ -59,6 +59,37 @@ files = ["demo/a.txt"]
     assert_eq!(task.steps[0].id(), "copy-files");
 }
 
+/// `dnf-remove` 动作应当能被解析，且参数与策略一致。
+#[test]
+fn loads_dnf_remove_action() {
+    let dir = scratch("dnf-remove");
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "dnf-remove"
+packages = ["fcitx5", "ffmpeg"]
+"#,
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    assert_eq!(step.id(), "dnf-remove");
+    match step {
+        Action::DnfRemove { packages } => {
+            assert_eq!(packages, &vec!["fcitx5".to_string(), "ffmpeg".to_string()]);
+        }
+        other => panic!("应为 dnf-remove：{}", other.id()),
+    }
+}
+
 #[test]
 fn rejects_policy_violating_schema() {
     let dir = scratch("invalid");

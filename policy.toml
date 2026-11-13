@@ -529,3 +529,11 @@ files = [
     "misc/id_ed25519.pub",
 ]
 
+[[tasks.steps]]
+id = "dnf-remove"
+packages = [
+    # opensc 会提供一个名为 `cardostool` 的工具，使得我在敲入 `car` + TAB时不会马上跳出 cargo。不流畅。
+    # 而这个包提供读写 smartcard 的能力。而我日常并不需要这个能力。
+    # 所以，删了反而一了百了。
+    "opensc",
+]

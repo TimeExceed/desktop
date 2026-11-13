@@ -44,6 +44,7 @@ $defs:
   action:
     oneOf:
     - $ref: "#/$defs/dnf-install"
+    - $ref: "#/$defs/dnf-remove"
     - $ref: "#/$defs/set-hostname"
     - $ref: "#/$defs/dnf-repo"
     - $ref: "#/$defs/reboot"
@@ -98,6 +99,24 @@ $defs:
       - packages
     - required:
       - local-rpms
+    additionalProperties: false
+
+  dnf-remove:
+    description: |
+      使用 dnf 移除一批包。
+      已卸载的包会跳过，因此重复执行是幂等的。
+    type: object
+    properties:
+      id:
+        const: dnf-remove
+      packages:
+        description: 包名
+        type: array
+        items:
+          type: string
+    required:
+    - id
+    - packages
     additionalProperties: false
 
   set-hostname:

@@ -24,7 +24,7 @@ pub struct Task {
     pub steps: Vec<Action>,
 }
 
-/// 一个步骤，对应 schema 里 `action.oneOf` 的九种动作。
+/// 一个步骤，对应 schema 里 `action.oneOf` 的各种动作。
 ///
 /// 用 TOML 的 `id` 字段做标签区分变体。
 #[derive(Debug, Deserialize)]
@@ -53,6 +53,10 @@ pub enum Action {
         #[serde(default)]
         allowerasing: bool,
     },
+
+    /// 用 dnf 移除包。
+    #[serde(rename_all = "kebab-case")]
+    DnfRemove { packages: Vec<String> },
 
     /// 给目标文件打 patch。
     #[serde(rename_all = "kebab-case")]
@@ -123,6 +127,7 @@ impl Action {
         match self {
             Action::CopyFiles { .. } => "copy-files",
             Action::DnfInstall { .. } => "dnf-install",
+            Action::DnfRemove { .. } => "dnf-remove",
             Action::PatchFile { .. } => "patch-file",
             Action::DnfRepo { .. } => "dnf-repo",
             Action::SetHostname { .. } => "set-hostname",
