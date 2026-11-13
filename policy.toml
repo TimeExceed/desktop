@@ -198,6 +198,14 @@ files = [
 ]
 
 [[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/Pictures"
+files = [
+    "xfce/wallpaper/charles_darwin_left.png",
+]
+
+
+[[tasks.steps]]
 id = "reboot"
 prompt = """
 恢复Xfce桌面设置。重启后生效。
