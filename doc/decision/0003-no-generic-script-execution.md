@@ -162,7 +162,7 @@ Accepted
 - **完成判定写在动作内部**：
   如 `dnf-installed` 用 `rpm -q` / `dnf group info`，`patch-file` 用反向 dry-run，`reboot` 用 `boot_id` 比较，`manual-check` 用状态文件；
 - **错误统一走 `anyhow`**：动作返回 `Result`，恢复器在边界处打印完整错误链；
-- **输出统一走 `StepContext::run`**：子进程的 stdout/stderr 直接继承终端，不重定向，
+- **动作的子进程统一走 `RunAs::command(...).status()`**：stdout/stderr 直接继承终端，不重定向，
   `sudo` 的密码提示因此可见。
 
 已经落地的替换：
@@ -207,7 +207,7 @@ Accepted
 
 Mitigations:
 - **表达力不足**：以“新增动作”而非“新增逃生舱”的方式扩展；`update-fc-cache` 与 `mount` 都是这一原则的产物；
-- **开发成本**：动作之间共享 `StepContext`、`ctx.run`、`same_content` 等基础设施，单个动作的实现通常不超过五十行；
+- **开发成本**：动作之间共享 `StepContext`、`RunAs::command`、`same_content` 等基础设施，单个动作的实现通常不超过五十行；
 - **过渡期**：`python` 在 `data-disk` 迁移完成前保留，但不得用于新任务。
 
 ## Related Decisions

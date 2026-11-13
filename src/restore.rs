@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -74,8 +74,8 @@ impl Action {
                 if pending.is_empty() {
                     info!(target: &ctx.log_target, "所需的包均已安装");
                 } else {
-                    let mut cmd = Command::new("sudo");
-                    cmd.arg("dnf").arg("install").arg("-y");
+                    let mut cmd = RunAsRoot.command("dnf");
+                    cmd.arg("install").arg("-y");
 
                     for s in setopt {
                         cmd.arg(format!("--setopt={s}"));
@@ -89,8 +89,8 @@ impl Action {
 
                     cmd.args(&pending);
 
-                    let status = ctx
-                        .run(&mut cmd)
+                    let status = cmd
+                        .status()
                         .with_context(|| format!("执行 dnf install 失败：{}", pending.join(" ")))?;
                     anyhow::ensure!(
                         status.success(),
@@ -102,6 +102,35 @@ impl Action {
                 }
             }
 
+            // 移除 dnf 包；已卸载的包会跳过。
+            Action::DnfRemove { packages } => {
+                let mut pending: Vec<String> = Vec::new();
+                for pkg in packages {
+                    if dnf_installed(pkg)? {
+                        pending.push(pkg.clone());
+                    }
+                }
+
+                if pending.is_empty() {
+                    info!(target: &ctx.log_target, "所需的包均已卸载");
+                } else {
+                    let status = RunAsRoot
+                        .command("dnf")
+                        .arg("remove")
+                        .arg("-y")
+                        .args(&pending)
+                        .status()
+                        .with_context(|| format!("执行 dnf remove 失败：{}", pending.join(" ")))?;
+                    anyhow::ensure!(
+                        status.success(),
+                        "dnf remove 失败（{status}）：{}",
+                        pending.join(" ")
+                    );
+
+                    info!(target: &ctx.log_target, "移除 {}", pending.join(" "));
+                }
+            }
+
             // 设置静态主机名。
             Action::SetHostname { hostname } => {
                 let current = current_hostname()?;
@@ -109,11 +138,11 @@ impl Action {
                 if current == *hostname {
                     info!(target: &ctx.log_target, "主机名已是 {hostname}");
                 } else {
-                    let mut cmd = Command::new("sudo");
-                    cmd.arg("hostnamectl").arg("set-hostname").arg(hostname);
-
-                    let status = ctx
-                        .run(&mut cmd)
+                    let status = RunAsRoot
+                        .command("hostnamectl")
+                        .arg("set-hostname")
+                        .arg(hostname)
+                        .status()
                         .with_context(|| format!("执行 hostnamectl 失败：{hostname}"))?;
                     anyhow::ensure!(status.success(), "设置主机名失败（{status}）：{hostname}");
 
@@ -148,11 +177,10 @@ impl Action {
                     sleep(Duration::from_secs_f64(delay));
                 }
 
-                let mut cmd = Command::new("sudo");
-                cmd.arg("systemctl").arg("reboot");
-
-                let status = ctx
-                    .run(&mut cmd)
+                let status = RunAsRoot
+                    .command("systemctl")
+                    .arg("reboot")
+                    .status()
                     .with_context(|| "执行 systemctl reboot 失败")?;
                 anyhow::ensure!(status.success(), "重启命令失败（{status}）");
 
@@ -200,13 +228,28 @@ impl Action {
                 gpgkey,
                 release_rpms,
             } => {
-                // 1. release-rpms：直接安装仓库 rpm（$releasever 交给 dnf 展开）。
-                if !release_rpms.is_empty() && !repo_enabled(repo_id)? {
-                    let mut cmd = std::process::Command::new("sudo");
-                    cmd.arg("dnf").arg("install").arg("-y").args(release_rpms);
+                // 1. release-rpms：逐个安装仓库 rpm。
+                //    幂等性按包是否已安装判断：release rpm 建立的仓库名（如
+                //    rpmfusion-free）与 repo-id（rpmfusion）并不一致，
+                //    用 `dnf repolist` 匹配 repo-id 会永远判定未添加，因而重复安装。
+                let mut pending: Vec<&str> = vec![];
+                for url in release_rpms {
+                    if !release_rpm_installed(url)? {
+                        pending.push(url);
+                    }
+                }
 
-                    let status = ctx
-                        .run(&mut cmd)
+                if pending.is_empty() {
+                    if !release_rpms.is_empty() {
+                        info!(target: &ctx.log_target, "仓库 {repo_id} 已添加");
+                    }
+                } else {
+                    let status = RunAsRoot
+                        .command("dnf")
+                        .arg("install")
+                        .arg("-y")
+                        .args(&pending)
+                        .status()
                         .with_context(|| format!("安装仓库 rpm 失败：{repo_id}"))?;
                     anyhow::ensure!(status.success(), "安装仓库 rpm 失败（{status}）：{repo_id}");
 
@@ -261,11 +304,12 @@ impl Action {
                     .with_context(|| format!("备份基准失败：{}", backup.display()))?;
 
                 // 打 patch。
-                let mut cmd = run_as.command("patch");
-                cmd.arg("-i").arg(&patch_file).arg(dest);
-
-                let status = ctx
-                    .run(&mut cmd)
+                let status = run_as
+                    .command("patch")
+                    .arg("-i")
+                    .arg(&patch_file)
+                    .arg(dest)
+                    .status()
                     .with_context(|| format!("打 patch 失败：{}", dest.display()))?;
                 anyhow::ensure!(
                     status.success(),
@@ -305,11 +349,12 @@ impl Action {
                     run_as.make_dirs(parent)?;
                 }
 
-                let mut cmd = run_as.command("ln");
-                cmd.arg("-s").arg(src).arg(dest);
-
-                let status = ctx
-                    .run(&mut cmd)
+                let status = run_as
+                    .command("ln")
+                    .arg("-s")
+                    .arg(src)
+                    .arg(dest)
+                    .status()
                     .with_context(|| format!("创建软链接失败：{}", dest.display()))?;
                 anyhow::ensure!(
                     status.success(),
@@ -323,10 +368,11 @@ impl Action {
 
             // 刷新字体缓存；fc-cache 本身幂等，直接执行。
             Action::UpdateFcCache => {
-                let mut cmd = Command::new("sudo");
-                cmd.arg("fc-cache").arg("-fv");
-
-                let status = ctx.run(&mut cmd).with_context(|| "执行 fc-cache 失败")?;
+                let status = RunAsRoot
+                    .command("fc-cache")
+                    .arg("-fv")
+                    .status()
+                    .with_context(|| "执行 fc-cache 失败")?;
                 anyhow::ensure!(status.success(), "fc-cache 失败（{status}）");
 
                 info!(target: &ctx.log_target, "已刷新字体缓存");
@@ -349,8 +395,6 @@ impl Action {
 /// 单个步骤的执行上下文。
 ///
 /// 框架在执行每个步骤前准备好状态目录。
-/// 步骤内启动的子进程直接继承终端的 stdout/stderr，不重定向：
-/// 否则 `sudo` 的密码提示（走 stderr）就看不见了。
 pub struct StepContext {
     /// 日志前缀：`{task}/{step-index}-{step-id}`。
     pub log_target: String,
@@ -375,12 +419,6 @@ impl StepContext {
             backup_dir,
             state_dir,
         })
-    }
-
-    /// 执行命令，stdout/stderr 直接继承终端（`sudo` 的密码提示因此可见）。
-    pub fn run(&self, cmd: &mut Command) -> anyhow::Result<ExitStatus> {
-        let status = cmd.status().context("启动子进程失败")?;
-        Ok(status)
     }
 }
 
@@ -411,6 +449,28 @@ pub fn dnf_installed(pkg: &str) -> anyhow::Result<bool> {
 
         Ok(output.status.success())
     }
+}
+
+/// 判断 release rpm 地址对应的包是否已经安装。
+///
+/// 地址形如 `.../rpmfusion-free-release-45.noarch.rpm`，不支持 `$releasever`
+/// 占位符。从文件名去掉 `.rpm` 与 `.arch` 后得到 `name-version[-release]`，
+/// 交给 `rpm -q` 查询。
+/// 地址解析不出包名时按“未安装”处理，交给 dnf 自行判断。
+pub fn release_rpm_installed(url: &str) -> anyhow::Result<bool> {
+    let Some(stem) = url
+        .rsplit('/')
+        .next()
+        .and_then(|base| base.split('?').next())
+        .and_then(|base| base.strip_suffix(".rpm"))
+    else {
+        return Ok(false);
+    };
+
+    // 去掉 `.arch`；`rpm -q` 接受 `name-version[-release]` 形式。
+    let query = stem.rsplit_once('.').map_or(stem, |(s, _)| s);
+
+    dnf_installed(query)
 }
 
 /// 读取本次启动的唯一标识；重启后会变化。

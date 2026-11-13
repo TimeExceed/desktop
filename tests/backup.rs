@@ -59,6 +59,37 @@ files = ["demo/a.txt"]
     assert_eq!(task.steps[0].id(), "copy-files");
 }
 
+/// `dnf-remove` 动作应当能被解析，且参数与策略一致。
+#[test]
+fn loads_dnf_remove_action() {
+    let dir = scratch("dnf-remove");
+    let policy_path = dir.path().join("policy.toml");
+    fs::write(
+        &policy_path,
+        r#"
+[[tasks]]
+id = "demo"
+display-name = "演示"
+
+[[tasks.steps]]
+id = "dnf-remove"
+packages = ["fcitx5", "ffmpeg"]
+"#,
+    )
+    .expect("写入策略");
+
+    let policy = Policy::load(&policy_path).expect("解析策略");
+    let step = &policy.tasks[0].steps[0];
+
+    assert_eq!(step.id(), "dnf-remove");
+    match step {
+        Action::DnfRemove { packages } => {
+            assert_eq!(packages, &vec!["fcitx5".to_string(), "ffmpeg".to_string()]);
+        }
+        other => panic!("应为 dnf-remove：{}", other.id()),
+    }
+}
+
 #[test]
 fn rejects_policy_violating_schema() {
     let dir = scratch("invalid");
@@ -257,6 +288,30 @@ fn repo_enabled_detects_fedora_repo() {
     assert!(
         !repo_enabled("no-such-repo-xyz").expect("检查不存在的仓库"),
         "不存在的仓库应当返回 false"
+    );
+}
+
+/// release rpm 的安装检测：按包是否已安装判断，与 repo-id 无关。
+#[test]
+fn release_rpm_installed_detects_package() {
+    assert!(
+        release_rpm_installed(
+            "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-45.noarch.rpm"
+        )
+        .expect("检查 rpmfusion-free-release"),
+        "已安装的 release rpm 应当返回 true"
+    );
+    assert!(
+        release_rpm_installed(
+            "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-45.noarch.rpm"
+        )
+        .expect("检查 rpmfusion-nonfree-release"),
+        "已安装的 release rpm 应当返回 true"
+    );
+    assert!(
+        !release_rpm_installed("https://example.com/definitely-not-a-real-release-45.noarch.rpm")
+            .expect("检查不存在的 release rpm"),
+        "未安装的 release rpm 应当返回 false"
     );
 }
 

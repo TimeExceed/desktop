@@ -125,8 +125,8 @@ display-name = "安装专利编解码器"
 id = "dnf-repo"
 repo-id = "rpmfusion"
 release-rpms = [
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm",
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm",
+    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-45.noarch.rpm",
+    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-45.noarch.rpm",
 ]
 
 [[tasks.steps]]
@@ -196,6 +196,14 @@ dest-dir = "/home/taoda/.local/share/notes/便笺"
 files = [
     "xfce/notes/Note 1",
 ]
+
+[[tasks.steps]]
+id = "copy-files"
+dest-dir = "/home/taoda/Pictures"
+files = [
+    "xfce/wallpaper/charles_darwin_left.png",
+]
+
 
 [[tasks.steps]]
 id = "reboot"
@@ -397,6 +405,12 @@ files = [
     "dev/.gitconfig",
 ]
 
+[[tasks.steps]]
+id = "reboot"
+prompt = """
+重启，以使对 rust 的改动生效。
+"""
+
 
 [[tasks]]
 id = "ghostty"
@@ -513,4 +527,13 @@ files = [
     "misc/id_ecdsa.pub",
     "misc/id_ed25519",
     "misc/id_ed25519.pub",
+]
+
+[[tasks.steps]]
+id = "dnf-remove"
+packages = [
+    # opensc 会提供一个名为 `cardostool` 的工具，使得我在敲入 `car` + TAB时不会马上跳出 cargo。不流畅。
+    # 而这个包提供读写 smartcard 的能力。而我日常并不需要这个能力。
+    # 所以，删了反而一了百了。
+    "opensc",
 ]
